@@ -1,13 +1,10 @@
 // Dashboard JavaScript
 
-console.log('dashboard.js loaded v2026-02-10-0909');
-
 let dashboard = null;
 
 document.addEventListener('change', (e) => {
     if (e && e.target && e.target.id === 'estado-filter') {
         if (window.dashboard && typeof window.dashboard.filtrarProximos === 'function') {
-            console.log('Filtro estado change:', e.target.value);
             window.dashboard.filtrarProximos();
         }
     }
@@ -16,7 +13,6 @@ document.addEventListener('change', (e) => {
 document.addEventListener('input', (e) => {
     if (e && e.target && e.target.id === 'estado-filter') {
         if (window.dashboard && typeof window.dashboard.filtrarProximos === 'function') {
-            console.log('Filtro estado input:', e.target.value);
             window.dashboard.filtrarProximos();
         }
     }
@@ -26,6 +22,7 @@ class Dashboard {
     constructor() {
         this.refreshInterval = null;
         this.editingSchedule = false; // Flag to block refresh when editing
+        this.retryInProgress = new Set(); // Track which retries are in progress
         this.init();
     }
 
@@ -51,12 +48,24 @@ class Dashboard {
             });
         }
 
+        // Filtro de estado para próximos envíos
         const estadoFilter = document.getElementById('estado-filter');
         if (estadoFilter) {
             estadoFilter.addEventListener('change', () => {
-                console.log('Filtro estado listener local:', estadoFilter.value);
                 this.filtrarProximos();
             });
+        }
+
+        // Filtro de fecha para últimos envíos
+        const fechaFilter = document.getElementById('fecha-filter');
+        if (fechaFilter) {
+            fechaFilter.addEventListener('change', () => {
+                this.filtrarEnvios();
+            });
+
+            // Establecer fecha por defecto a hoy
+            const today = new Date().toISOString().split('T')[0];
+            fechaFilter.value = today;
         }
 
         // Update time every second
@@ -85,9 +94,12 @@ class Dashboard {
     }
 
     async loadData() {
-        // Don't refresh if we're editing a schedule
+        // Don't refresh if we're editing a schedule or if there are retries in progress
         if (this.editingSchedule) {
-            console.log('Skipping data refresh - editing schedule');
+            return;
+        }
+        
+        if (this.retryInProgress.size > 0) {
             return;
         }
         
@@ -103,7 +115,6 @@ class Dashboard {
             this.updateEnviosTable(envios);
             this.updateProximosTable(proximos);
         } catch (error) {
-            console.error('Error loading data:', error);
             this.showToast('Error cargando datos', 'error');
         }
     }
@@ -113,7 +124,6 @@ class Dashboard {
             const response = await fetch('/api/stats');
             return await response.json();
         } catch (error) {
-            console.error('Error fetching stats:', error);
             return {
                 enviosHoy: 0,
                 fallidos: 0,
@@ -128,7 +138,6 @@ class Dashboard {
             const response = await fetch('/api/envios');
             return await response.json();
         } catch (error) {
-            console.error('Error fetching envios:', error);
             return [];
         }
     }
@@ -157,33 +166,114 @@ class Dashboard {
     }
 
     updateEnviosTable(envios) {
+        try {
+            // Almacenar todos los datos para el filtro
+            this.allEnvios = envios;
+            
+            // Aplicar filtro actual
+            this.filtrarEnvios();
+        } catch (error) {
+            // Mostrar mensaje de error en la tabla
+            const tbody = document.getElementById('envios-tbody');
+            const loading = document.getElementById('envios-loading');
+            
+            if (loading) loading.style.display = 'none';
+            if (tbody) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--error-color);">Error cargando datos de envíos</td></tr>';
+            }
+        }
+    }
+
+    filtrarEnvios() {
         const tbody = document.getElementById('envios-tbody');
         const loading = document.getElementById('envios-loading');
+        const fechaFilter = document.getElementById('fecha-filter');
+        
+        if (!fechaFilter) {
+            return;
+        }
         
         loading.style.display = 'none';
         tbody.innerHTML = '';
 
-        // Indexar envíos por id para el modal de detalles y evitar duplicados visuales
-        this.enviosById = new Map();
-        const enviosUnique = [];
-        (Array.isArray(envios) ? envios : []).forEach((envio) => {
-            if (!envio || envio.id == null) return;
-            const key = String(envio.id);
-            if (!this.enviosById.has(key)) {
-                this.enviosById.set(key, envio);
-                enviosUnique.push(envio);
-            }
-        });
+        // Obtener valor del filtro de fecha
+        const fechaSeleccionada = fechaFilter.value;
+        
+        const allEnvios = Array.isArray(this.allEnvios) ? this.allEnvios : [];
+        
+        let enviosFiltrados = allEnvios;
 
-        if (enviosUnique.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No hay envíos registrados hoy</td></tr>';
+        // Filtrar por fecha si se seleccionó una
+        if (fechaSeleccionada) {
+            try {
+                enviosFiltrados = allEnvios.filter(envio => {
+                    if (!envio || !envio.fecha) {
+                        return false;
+                    }
+                    
+                    // Extraer la fecha del envío (formato real: "2026-02-10 14:35")
+                    const fechaEnvioStr = envio.fecha.split(' ')[0]; // "2026-02-10"
+                    
+                    // Validar formato de fecha (YYYY-MM-DD)
+                    if (!fechaEnvioStr || fechaEnvioStr.split('-').length !== 3) {
+                        return false;
+                    }
+                    
+                    // La fecha ya está en formato YYYY-MM-DD,可以直接比较
+                    return fechaEnvioStr === fechaSeleccionada;
+                });
+            } catch (error) {
+                // Si hay error en el filtrado, mostrar todos los envíos
+                enviosFiltrados = allEnvios;
+            }
+        }
+
+        if (enviosFiltrados.length === 0) {
+            const mensaje = fechaSeleccionada ? 
+                `No hay envíos registrados para el ${this.formatearFecha(fechaSeleccionada)}` : 
+                'No hay envíos registrados hoy';
+            tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">${mensaje}</td></tr>`;
             return;
         }
 
-        enviosUnique.forEach(envio => {
-            const row = this.createEnvioRow(envio);
-            tbody.appendChild(row);
+        // Indexar envíos por id para el modal de detalles y evitar duplicados visuales
+        this.enviosById = new Map();
+        const enviosUnique = [];
+        enviosFiltrados.forEach((envio) => {
+            try {
+                if (!envio || envio.id == null) return;
+                const key = String(envio.id);
+                if (!this.enviosById.has(key)) {
+                    this.enviosById.set(key, envio);
+                    enviosUnique.push(envio);
+                }
+            } catch (error) {
+                // Silenciosamente ignorar envíos con errores
+            }
         });
+
+        enviosUnique.forEach(envio => {
+            try {
+                const row = this.createEnvioRow(envio);
+                tbody.appendChild(row);
+            } catch (error) {
+                // Silenciosamente ignorar errores al crear filas
+            }
+        });
+    }
+
+    formatearFecha(fechaISO) {
+        // La fecha ya viene en formato YYYY-MM-DD, convertirla a DD/MM/YYYY
+        const [año, mes, dia] = fechaISO.split('-');
+        return `${dia}/${mes}/${año}`;
+    }
+
+    clearDateFilter() {
+        const fechaFilter = document.getElementById('fecha-filter');
+        if (fechaFilter) {
+            fechaFilter.value = '';
+            this.filtrarEnvios();
+        }
     }
 
     createEnvioRow(envio) {
@@ -223,7 +313,6 @@ class Dashboard {
         const filterCount = document.getElementById('filter-count');
         
         if (!filterSelect) {
-            console.error('❌ No se encontró el elemento #estado-filter');
             return;
         }
         
@@ -335,18 +424,6 @@ class Dashboard {
                 <small class="form-text">Tiempo que se conservará el historial de envíos en el sistema</small>
             </div>
             
-            <div class="form-group">
-                <label>Configuración Adicional:</label>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="guardar-backups" checked>
-                    <span>Guardar respaldos automáticos de boletines</span>
-                </label>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="logs-detallados" checked>
-                    <span>Generar logs detallados de ejecución</span>
-                </label>
-            </div>
-            
             <div class="form-actions">
                 <button class="btn-primary" onclick="dashboard.saveSettings()">
                     <i class="fas fa-save"></i> Guardar Configuración
@@ -383,7 +460,6 @@ class Dashboard {
                 }
             }
         } catch (error) {
-            console.error('Error cargando configuración:', error);
             this.showToast('Error cargando configuración', 'error');
         }
     }
@@ -438,31 +514,183 @@ class Dashboard {
         `);
     }
 
-    retryExecution(id) {
-        this.showToast('Reintentando ejecución...', 'info');
-        setTimeout(() => {
-            this.showToast('Ejecución completada exitosamente', 'success');
-            this.loadData();
-        }, 1500);
+    async retryExecution(id) {
+        // Check if retry is already in progress for this ID
+        if (this.retryInProgress.has(id)) {
+            this.showToast('Ya hay un reintento en progreso para este envío', 'warning');
+            return;
+        }
+
+        // Add to in-progress set
+        this.retryInProgress.add(id);
+        
+        // Disable the retry button
+        this.disableRetryButton(id);
+        
+        // Update the status to "running" immediately
+        this.updateExecutionStatus(id, 'running');
+        
+        try {
+            this.showToast('Iniciando ejecución...', 'info');
+            
+            // Call the retry API endpoint
+            const response = await fetch(`/api/retry-execution/${id}`, {
+                method: 'POST'
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                
+                // Handle the synchronous response
+                if (result.status === 'success') {
+                    this.showToast(result.message || 'Ejecución completada exitosamente', 'success');
+                    this.updateExecutionStatus(id, 'success');
+                    // Recargar datos para mostrar la nueva ejecución en la tabla
+                    setTimeout(() => this.loadData(), 1000);
+                } else if (result.status === 'failed') {
+                    this.showToast(result.message || 'La ejecución falló', 'error');
+                    this.updateExecutionStatus(id, 'failed');
+                    // Para fallos, también recargar para mostrar el nuevo registro de intento fallido
+                    setTimeout(() => this.loadData(), 1000);
+                } else {
+                    this.showToast('Estado de ejecución desconocido', 'warning');
+                    this.updateExecutionStatus(id, 'failed');
+                    setTimeout(() => this.loadData(), 1000);
+                }
+            } else {
+                const error = await response.json();
+                this.showToast(error.detail || 'Error al reintentar ejecución', 'error');
+                // Revert to failed status on error
+                this.updateExecutionStatus(id, 'failed');
+            }
+        } catch (error) {
+            this.showToast('Error de conexión al reintentar ejecución', 'error');
+            // Revert to failed status on error
+            this.updateExecutionStatus(id, 'failed');
+        } finally {
+            // Remove from in-progress set and re-enable button
+            this.retryInProgress.delete(id);
+            this.enableRetryButton(id);
+        }
+    }
+
+    async pollExecutionStatus(id) {
+        const maxPolls = 30; // Maximum 30 polls (30 seconds with 1-second intervals)
+        let pollCount = 0;
+        
+        const poll = async () => {
+            if (pollCount >= maxPolls) {
+                this.showToast('Tiempo de espera agotado para la ejecución', 'warning');
+                this.updateExecutionStatus(id, 'failed');
+                this.retryInProgress.delete(id);
+                this.enableRetryButton(id);
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/execution-status/${id}`);
+                
+                if (response.ok) {
+                    const statusData = await response.json();
+                    
+                    if (statusData.status === 'success') {
+                        this.showToast('Ejecución completada exitosamente', 'success');
+                        this.updateExecutionStatus(id, 'success');
+                        this.retryInProgress.delete(id);
+                        this.enableRetryButton(id);
+                        // Solo recargar datos si fue exitoso para mostrar información completa
+                        setTimeout(() => this.loadData(), 1000);
+                    } else if (statusData.status === 'failed') {
+                        this.showToast(statusData.message || 'La ejecución falló', 'error');
+                        this.updateExecutionStatus(id, 'failed');
+                        this.retryInProgress.delete(id);
+                        this.enableRetryButton(id);
+                        // NO recargar datos en caso de fallo para mantener la información visible
+                    } else if (statusData.status === 'running') {
+                        // Still running, continue polling
+                        pollCount++;
+                        setTimeout(poll, 1000);
+                    } else {
+                        // Unknown status, continue polling
+                        pollCount++;
+                        setTimeout(poll, 1000);
+                    }
+                } else {
+                    // Error checking status, continue polling
+                    pollCount++;
+                    setTimeout(poll, 1000);
+                }
+            } catch (error) {
+                pollCount++;
+                setTimeout(poll, 1000);
+            }
+        };
+        
+        // Start polling
+        setTimeout(poll, 1000);
+    }
+
+    updateExecutionStatus(id, status) {
+        // Find the envio in the cache
+        const envio = this.enviosById ? this.enviosById.get(String(id)) : null;
+        if (envio) {
+            // Update the status in the cache
+            envio.status = status;
+            
+            // Find the actual row in the DOM and update only the status cell
+            const tbody = document.getElementById('envios-tbody');
+            const rows = tbody.getElementsByTagName('tr');
+            
+            for (let row of rows) {
+                // Look for the retry button with this specific ID
+                const retryButton = row.querySelector(`button[onclick*="retryExecution('${id}')"]`);
+                if (retryButton) {
+                    // Found the row, now update the status cell (usually index 2)
+                    const statusCell = row.cells[2]; // Status column
+                    if (statusCell) {
+                        statusCell.innerHTML = this.createStatusBadge(status);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    disableRetryButton(id) {
+        const retryButtons = document.querySelectorAll(`button[onclick*="retryExecution('${id}')"]`);
+        retryButtons.forEach(button => {
+            button.disabled = true;
+            button.style.opacity = '0.5';
+            button.style.cursor = 'not-allowed';
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            button.title = 'Reintentando...';
+        });
+    }
+
+    enableRetryButton(id) {
+        const retryButtons = document.querySelectorAll(`button[onclick*="retryExecution('${id}')"]`);
+        retryButtons.forEach(button => {
+            button.disabled = false;
+            button.style.opacity = '';
+            button.style.cursor = '';
+            button.innerHTML = '<i class="fas fa-redo"></i>';
+            button.title = 'Reintentar';
+        });
     }
 
     async editSchedule(id) {
-        console.log('editSchedule called with id:', id);
         try {
             // Block refresh while editing
             this.editingSchedule = true;
             
             // Fetch schedule data
-            console.log('Fetching schedule data from:', `/api/schedule/${id}`);
             const response = await fetch(`/api/schedule/${id}`);
-            console.log('Response status:', response.status);
             
             if (!response.ok) {
                 throw new Error('Error obteniendo datos de la tarea');
             }
             
             const scheduleData = await response.json();
-            console.log('Schedule data received:', scheduleData);
             
             // Create newsletter options
             const newsletterOptions = scheduleData.newsletters.map(nl => 
@@ -513,22 +741,18 @@ class Dashboard {
             });
             
         } catch (error) {
-            console.error('Error editando schedule:', error);
             this.showToast('Error cargando datos de la tarea', 'error');
             this.editingSchedule = false; // Unblock on error
         }
     }
 
     async saveSchedule(id) {
-        console.log('saveSchedule called with id:', id);
         try {
             // Get form values
             const newsletterId = document.getElementById('newsletter-select').value;
             const sendTime = document.getElementById('time-input').value;
             const timezone = document.getElementById('timezone-select').value;
             const isEnabled = document.getElementById('enabled-checkbox').checked;
-            
-            console.log('Form values:', { newsletterId, sendTime, timezone, isEnabled });
             
             // Validate inputs
             if (!newsletterId || !sendTime) {
@@ -537,7 +761,6 @@ class Dashboard {
             }
             
             // Send update request
-            console.log('Sending update request to:', `/api/schedule/${id}`);
             const response = await fetch(`/api/schedule/${id}`, {
                 method: 'PUT',
                 headers: {
@@ -551,9 +774,7 @@ class Dashboard {
                 })
             });
             
-            console.log('Update response status:', response.status);
             const result = await response.json();
-            console.log('Update response data:', result);
             
             if (response.ok && result.success) {
                 this.showToast('Tarea actualizada exitosamente', 'success');
@@ -563,7 +784,6 @@ class Dashboard {
             }
             
         } catch (error) {
-            console.error('Error guardando schedule:', error);
             this.showToast(`Error: ${error.message}`, 'error');
         } finally {
             // Unblock refresh and reload data
@@ -573,6 +793,31 @@ class Dashboard {
     }
 
     async toggleSchedule(id) {
+        // Obtener información del boletín para mostrar en la confirmación
+        const proximo = this.allProximos ? this.allProximos.find(p => p.id === id) : null;
+        const boletinNombre = proximo ? proximo.boletin : 'Boletín';
+        const estadoActual = proximo ? proximo.estado : 'unknown';
+        const nuevoEstado = estadoActual === 'enabled' ? 'deshabilitar' : 'habilitar';
+        
+        // Mostrar modal de confirmación
+        this.showModal('Confirmar Cambio de Estado', `
+            <div class="confirmation-message">
+                <p>¿Está seguro de que desea <strong>${nuevoEstado}</strong> el boletín <strong>"${boletinNombre}"</strong>?</p>
+                <p>Esta acción ${nuevoEstado === 'habilitar' ? 'activará' : 'desactivará'} los envíos automáticos programados.</p>
+            </div>
+            <div class="form-actions">
+                <button class="btn-primary" onclick="dashboard.confirmToggleSchedule('${id}')">
+                    <i class="fas fa-${nuevoEstado === 'habilitar' ? 'check' : 'times'}-circle"></i> 
+                    Sí, ${nuevoEstado.charAt(0).toUpperCase() + nuevoEstado.slice(1)}
+                </button>
+                <button class="btn-secondary" onclick="dashboard.closeModal()">
+                    <i class="fas fa-times"></i> Cancelar
+                </button>
+            </div>
+        `);
+    }
+
+    async confirmToggleSchedule(id) {
         try {
             this.showToast('Actualizando estado...', 'info');
             
@@ -583,38 +828,66 @@ class Dashboard {
             if (response.ok) {
                 const result = await response.json();
                 this.showToast(result.message, 'success');
+                this.closeModal();
                 this.loadData();
             } else {
                 const error = await response.json();
                 this.showToast(error.detail || 'Error actualizando estado', 'error');
+                this.closeModal();
             }
         } catch (error) {
             console.error('Error:', error);
             this.showToast('Error de conexión', 'error');
+            this.closeModal();
         }
     }
 
     async deleteSchedule(id) {
-        if (confirm('¿Está seguro de eliminar esta tarea programada?')) {
-            try {
-                this.showToast('Eliminando tarea...', 'info');
-                
-                const response = await fetch(`/api/delete-schedule/${id}`, {
-                    method: 'POST'
-                });
-                
-                if (response.ok) {
-                    const result = await response.json();
-                    this.showToast(result.message, 'success');
-                    this.loadData();
-                } else {
-                    const error = await response.json();
-                    this.showToast(error.detail || 'Error eliminando tarea', 'error');
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                this.showToast('Error de conexión', 'error');
+        // Obtener información del boletín para mostrar en la confirmación
+        const proximo = this.allProximos ? this.allProximos.find(p => p.id === id) : null;
+        const boletinNombre = proximo ? proximo.boletin : 'Boletín';
+        const horaEjecucion = proximo ? proximo.hora : 'N/A';
+        
+        // Mostrar modal de confirmación
+        this.showModal('Confirmar Eliminación', `
+            <div class="confirmation-message">
+                <p>¿Está seguro de que desea <strong>eliminar</strong> el boletín <strong>"${boletinNombre}"</strong>?</p>
+                <p>Esta acción eliminará permanentemente la tarea programada para las <strong>${horaEjecucion}</strong>.</p>
+                <p style="color: var(--error-color); font-weight: 500;">⚠️ Esta acción no se puede deshacer</p>
+            </div>
+            <div class="form-actions">
+                <button class="btn-primary" style="background: var(--error-color);" onclick="dashboard.confirmDeleteSchedule('${id}')">
+                    <i class="fas fa-trash"></i> 
+                    Sí, Eliminar
+                </button>
+                <button class="btn-secondary" onclick="dashboard.closeModal()">
+                    <i class="fas fa-times"></i> Cancelar
+                </button>
+            </div>
+        `);
+    }
+
+    async confirmDeleteSchedule(id) {
+        try {
+            this.showToast('Eliminando tarea...', 'info');
+            
+            const response = await fetch(`/api/delete-schedule/${id}`, {
+                method: 'POST'
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                this.showToast(result.message, 'success');
+                this.closeModal();
+                this.loadData();
+            } else {
+                const error = await response.json();
+                this.showToast(error.detail || 'Error eliminando tarea', 'error');
+                this.closeModal();
             }
+        } catch (error) {
+            this.showToast('Error de conexión', 'error');
+            this.closeModal();
         }
     }
 
@@ -763,7 +1036,6 @@ class Dashboard {
             }
             
         } catch (error) {
-            console.error('Error cargando boletín:', error);
             this.showToast('Error de conexión al cargar el boletín', 'error');
         }
     }
@@ -809,7 +1081,6 @@ class Dashboard {
             this.showToast('Configuración guardada exitosamente', 'success');
             
         } catch (error) {
-            console.error('Error guardando configuración:', error);
             this.showToast('Error guardando configuración', 'error');
         }
     }
@@ -829,13 +1100,8 @@ class Dashboard {
                 body: JSON.stringify(config)
             });
             
-            if (response.ok) {
-                console.log('Configuración guardada en servidor');
-            } else {
-                console.warn('No se pudo guardar configuración en servidor');
-            }
         } catch (error) {
-            console.warn('Error guardando configuración en servidor:', error);
+            // Silenciosamente ignorar errores de conexión al servidor
         }
     }
 
@@ -895,6 +1161,12 @@ function closeModal() {
     }
 }
 
+function clearDateFilter() {
+    if (window.dashboard) {
+        return window.dashboard.clearDateFilter();
+    }
+}
+
 function filterTable(tableType, filter) {
     const tbody = document.getElementById(`${tableType}-tbody`);
     const rows = tbody.getElementsByTagName('tr');
@@ -928,7 +1200,7 @@ document.addEventListener('DOMContentLoaded', () => {
         dashboard = new Dashboard();
         window.dashboard = dashboard;
     } catch (error) {
-        console.error('❌ Error creando dashboard:', error);
+        // Silenciosamente ignorar errores de inicialización
     }
 });
 
@@ -1060,6 +1332,88 @@ style.textContent = `
     
     .checkbox-label input[type="checkbox"] {
         margin: 0;
+    }
+    
+    .confirmation-message {
+        text-align: center;
+        padding: 1.5rem 0;
+    }
+    
+    .confirmation-message p {
+        margin-bottom: 1rem;
+        line-height: 1.5;
+        color: var(--text-primary);
+    }
+    
+    .confirmation-message p:last-child {
+        margin-bottom: 0;
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+    }
+    
+    .table-controls {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+    
+    .date-filter {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: var(--light-bg);
+        padding: 0 0.1rem;
+        border-radius: 0.375rem;
+        border: 1px solid var(--border-color);
+    }
+    
+    .date-filter label {
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+        white-space: nowrap;
+    }
+    
+    .date-filter input[type="date"] {
+        border: none;
+        background: transparent;
+        color: var(--text-primary);
+        font-size: 0.875rem;
+        padding: 0.25rem;
+        outline: none;
+        min-width: 120px;
+    }
+    
+    .date-filter input[type="date"]::-webkit-calendar-picker-indicator {
+        cursor: pointer;
+        filter: invert(0.5);
+    }
+    
+    .btn-clear-date {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 0.25rem;
+        border-radius: 0.25rem;
+        transition: all 0.2s;
+    }
+    
+    .btn-clear-date:hover {
+        background: var(--error-color);
+        color: white;
+    }
+    
+    @media (max-width: 768px) {
+        .table-controls {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        
+        .date-filter {
+            justify-content: space-between;
+        }
     }
 `;
 document.head.appendChild(style);

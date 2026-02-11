@@ -1,8 +1,0 @@
-{
-  "reporte_a_ejecutar": "censo",
-  "URL_CENSO": "https://prod-03.eastus.logic.azure.com:443/workflows/...",
-  "URL_CENSO_FACTURACION": "https://prod-03.eastus.logic.azure.com:443/workflows/...",
-  "URL_SATISFACCION": "https://prod-03.eastus.logic.azure.com:443/workflows/...",
-  "REPORT_ID": "...",
-  "REPORT_ID_2": "..."
-}

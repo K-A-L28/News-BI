@@ -120,28 +120,37 @@ class SystemEngine:
         self.logger.info(f"📋 Scripts descubiertos: {list(scripts.keys())}")
         return scripts
     
-    def _load_script_info(self, script_path: Path) -> Optional[Dict[str, Any]]:
-        """Carga información de un script sin ejecutarlo"""
+    def _load_script_info(self, bulletin_name: str) -> Optional[Dict[str, Any]]:
+        """Carga información de un script desde la base de datos"""
         try:
-            # Para scripts normales de Python (como los del usuario), 
-            # simplemente verificar que el archivo existe y es válido
-            if script_path.exists() and script_path.suffix == '.py':
-                # Leer el contenido para validar que es un script Python válido
-                with open(script_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
+            # Verificar que el boletín existe en la base de datos
+            from models.database import SessionLocal, FileAsset
+            db = SessionLocal()
+            
+            try:
+                # Buscar el script principal del boletín
+                script_name = bulletin_name.lower().replace(' ', '_')
+                script_file = db.query(FileAsset).filter(
+                    FileAsset.file_type == 'script',
+                    FileAsset.file_path.like(f"%{script_name}%")
+                ).first()
                 
-                # Validación básica de que es un script Python
-                if content.strip():
+                if script_file:
+                    self.logger.info(f"📋 Script encontrado en BD para '{bulletin_name}'")
                     return {
-                        'class_name': 'PythonScript',  # Clase genérica
-                        'module_path': str(script_path),
-                        'instance': PythonScriptWrapper(script_path)
+                        'class_name': 'PythonScript',
+                        'bulletin_name': bulletin_name,
+                        'instance': PythonScriptWrapper(bulletin_name)
                     }
-            
-            return None
-            
+                else:
+                    self.logger.error(f"❌ No se encontró script para '{bulletin_name}' en la BD")
+                    return None
+                    
+            finally:
+                db.close()
+                
         except Exception as e:
-            self.logger.error(f"Error cargando script {script_path}: {str(e)}")
+            self.logger.error(f"Error cargando script '{bulletin_name}': {str(e)}")
             return None
 
     def get_auth_config(self) -> Dict[str, Any]:
@@ -176,33 +185,14 @@ class SystemEngine:
         try:
             self.logger.info(f"🚀 Ejecutando boletín: {bulletin_name} ({'manual' if manual else 'programado'})")
             
-            # Buscar el script correspondiente
-            script_name = bulletin_name.lower().replace(' ', '_')
-            script_path = self.user_scripts_dir / f"{script_name}.py"
+            self.logger.info(f"🔍 Buscando boletín en BD: '{bulletin_name}'")
             
-            self.logger.info(f"🔍 Buscando script: {script_path}")
-            self.logger.info(f"🔍 Nombre del boletín: '{bulletin_name}' → '{script_name}'")
-            
-            # Mostrar archivos disponibles para debug
-            if self.user_scripts_dir.exists():
-                available_scripts = list(self.user_scripts_dir.glob("*.py"))
-                self.logger.info(f"📁 Scripts disponibles: {[f.name for f in available_scripts]}")
-            else:
-                self.logger.warning(f"⚠️ Directorio user_scripts no existe: {self.user_scripts_dir}")
-            
-            if not script_path.exists():
-                return {
-                    'success': False,
-                    'error': f'Script no encontrado: {script_path}',
-                    'execution_id': f"{'manual' if manual else 'auto'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                }
-            
-            # Cargar y ejecutar el script
-            script_info = self._load_script_info(script_path)
+            # Cargar y ejecutar el script desde la BD
+            script_info = self._load_script_info(bulletin_name)
             if not script_info:
                 return {
                     'success': False,
-                    'error': f'Error cargando script: {script_path}',
+                    'error': f'Boletín no encontrado en la base de datos: {bulletin_name}',
                     'execution_id': f"{'manual' if manual else 'auto'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                 }
             
@@ -222,7 +212,7 @@ class SystemEngine:
             # Agregar configuración de autenticación y sistema
             execution_config.update(self.get_auth_config())
             
-            # Ejecutar el script usando el wrapper
+            # Ejecutar el script usando el wrapper (que extraerá archivos de la BD)
             result = script_info['instance'].execute(execution_config)
             
             # Validar resultado
@@ -383,15 +373,10 @@ class SystemEngine:
         return admin_user
     
     async def _save_script_file(self, db, script_file, bulletin_name, user_id):
-        """Guarda el script Python en filesystem y BD"""
+        """Guarda el script Python solo en BD (no en filesystem local)"""
         script_content = await script_file.read()
-        script_path = self.user_scripts_dir / f"{bulletin_name.lower().replace(' ', '_')}.py"
         
-        # Guardar en filesystem
-        with open(script_path, 'wb') as f:
-            f.write(script_content)
-        
-        # Guardar en BD
+        # Guardar únicamente en BD (no en filesystem)
         script_asset = FileAsset(
             file_name=script_file.filename,
             file_content=script_content.decode('utf-8'),
@@ -405,15 +390,16 @@ class SystemEngine:
     async def _save_query_files(self, db, query_files, bulletin_name, user_id):
         """Guarda archivos JSON de consulta"""
         count = 0
+        bulletin_prefix = bulletin_name.lower().replace(' ', '_')
         for query_file in query_files:
             query_content = await query_file.read()
             
-            # Guardar en BD
+            # Guardar en BD con path correcto incluyendo nombre del boletín
             query_asset = FileAsset(
                 file_name=query_file.filename,
                 file_content=query_content.decode('utf-8'),
                 file_type='query',
-                file_path=query_file.filename,
+                file_path=f"{bulletin_prefix}/{query_file.filename}",
                 created_by=user_id
             )
             db.add(query_asset)
@@ -426,33 +412,27 @@ class SystemEngine:
             return 0
         
         template_content = await template_file.read()
+        bulletin_prefix = bulletin_name.lower().replace(' ', '_')
         
-        # Guardar en BD
+        # Guardar en BD con path correcto incluyendo nombre del boletín
         template_asset = FileAsset(
             file_name=template_file.filename,
             file_content=template_content.decode('utf-8'),
             file_type='template',
-            file_path=template_file.filename,
+            file_path=f"{bulletin_prefix}/template/{template_file.filename}",
             created_by=user_id
         )
         db.add(template_asset)
         return 1
     
     async def _save_image_files(self, db, image_files, bulletin_name, user_id):
-        """Guarda archivos de imagen"""
+        """Guarda archivos de imagen solo en BD (no en filesystem local)"""
         count = 0
-        bulletin_dir = self.images_dir / bulletin_name.lower().replace(' ', '_')
-        bulletin_dir.mkdir(exist_ok=True)
         
         for image_file in image_files:
             image_content = await image_file.read()
             
-            # Guardar en filesystem
-            image_path = bulletin_dir / image_file.filename
-            with open(image_path, 'wb') as f:
-                f.write(image_content)
-            
-            # Guardar en BD
+            # Guardar únicamente en BD como base64 (no en filesystem)
             image_asset = FileAsset(
                 file_name=image_file.filename,
                 file_content=base64.b64encode(image_content).decode('utf-8'),
@@ -466,21 +446,105 @@ class SystemEngine:
 
 
 class PythonScriptWrapper:
-    """Wrapper para ejecutar scripts normales de Python"""
+    """Wrapper para ejecutar scripts extraídos de la base de datos"""
     
-    def __init__(self, script_path: Path):
-        self.script_path = script_path
-        self.logger = logging.getLogger(f"PythonScript.{script_path.stem}")
+    def __init__(self, bulletin_name: str):
+        self.bulletin_name = bulletin_name
+        self.logger = logging.getLogger(f"PythonScript.{bulletin_name}")
+        self.temp_dir = None
+    
+    def _extract_files_from_db(self, bulletin_name: str) -> Path:
+        """Extrae todos los archivos del boletín de la BD a un directorio temporal"""
+        import tempfile
+        import shutil
+        
+        # Crear directorio temporal
+        self.temp_dir = Path(tempfile.mkdtemp(prefix=f"bulletin_{bulletin_name.lower().replace(' ', '_')}_"))
+        
+        self.logger.info(f"📂 Extrayendo archivos del boletín '{bulletin_name}' a: {self.temp_dir}")
+        
+        # Conectar a la BD
+        from models.database import SessionLocal, FileAsset
+        db = SessionLocal()
+        
+        try:
+            # Buscar todos los archivos del boletín
+            files = db.query(FileAsset).filter(
+                FileAsset.file_path.like(f"%{bulletin_name.lower().replace(' ', '_')}%")
+            ).all()
+            
+            if not files:
+                raise Exception(f"No se encontraron archivos para el boletín '{bulletin_name}'")
+            
+            extracted_files = {}
+            
+            for file_asset in files:
+                try:
+                    # Determinar la ruta local del archivo
+                    if file_asset.file_type == 'script':
+                        local_path = self.temp_dir / f"{bulletin_name.lower().replace(' ', '_')}.py"
+                    elif file_asset.file_type == 'template':
+                        template_dir = self.temp_dir / 'templates'
+                        template_dir.mkdir(exist_ok=True)
+                        local_path = template_dir / file_asset.file_name
+                    elif file_asset.file_type == 'query':
+                        queries_dir = self.temp_dir / 'queries'
+                        queries_dir.mkdir(exist_ok=True)
+                        local_path = queries_dir / file_asset.file_name
+                    elif file_asset.file_type == 'image':
+                        images_dir = self.temp_dir / 'images'
+                        images_dir.mkdir(exist_ok=True)
+                        local_path = images_dir / file_asset.file_name
+                    else:
+                        local_path = self.temp_dir / file_asset.file_name
+                    
+                    # Extraer contenido y guardar localmente
+                    if file_asset.file_type == 'image':
+                        # Las imágenes están en base64
+                        content = base64.b64decode(file_asset.file_content)
+                        with open(local_path, 'wb') as f:
+                            f.write(content)
+                    else:
+                        # Text files (script, template, query) - limpiar caracteres \r
+                        clean_content = file_asset.file_content.replace('\r', '')
+                        with open(local_path, 'w', encoding='utf-8') as f:
+                            f.write(clean_content)
+                    
+                    extracted_files[file_asset.file_type] = local_path
+                    self.logger.info(f"✅ Extraído: {file_asset.file_type} -> {local_path}")
+                    
+                except Exception as e:
+                    self.logger.error(f"❌ Error extrayendo {file_asset.file_name}: {str(e)}")
+                    continue
+            
+            if 'script' not in extracted_files:
+                raise Exception(f"No se encontró el script principal para el boletín '{bulletin_name}'")
+            
+            self.logger.info(f"📁 Archivos extraídos: {len(extracted_files)} archivos")
+            return extracted_files['script']
+            
+        finally:
+            db.close()
+    
+    def _cleanup_temp_dir(self):
+        """Limpia el directorio temporal"""
+        if self.temp_dir and self.temp_dir.exists():
+            import shutil
+            try:
+                shutil.rmtree(self.temp_dir)
+                self.logger.info(f"🧹 Directorio temporal eliminado: {self.temp_dir}")
+            except Exception as e:
+                self.logger.error(f"❌ Error eliminando directorio temporal: {str(e)}")
     
     def execute(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Ejecuta el script Python y devuelve el resultado"""
+        """Ejecuta el script Python extraído de la BD y devuelve el resultado"""
         import logging
         import io
         
         # Crear un capturador de logs
         log_capture = io.StringIO()
         log_handler = logging.StreamHandler(log_capture)
-        log_handler.setLevel(logging.DEBUG)
+        log_handler.setLevel(logging.INFO)  # Cambiado de DEBUG a INFO para evitar loop infinito
         
         # Configurar el formato de los logs
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -492,7 +556,7 @@ class PythonScriptWrapper:
         
         # Agregar el capturador al logger raíz
         root_logger.addHandler(log_handler)
-        root_logger.setLevel(logging.DEBUG)
+        root_logger.setLevel(logging.INFO)  # Cambiado de DEBUG a INFO para evitar loop infinito
         
         # También agregar a loggers específicos que el script podría usar
         loggers_to_capture = [
@@ -510,7 +574,7 @@ class PythonScriptWrapper:
             try:
                 specific_logger = logging.getLogger(logger_name)
                 specific_logger.addHandler(log_handler)
-                specific_logger.setLevel(logging.DEBUG)
+                specific_logger.setLevel(logging.INFO)  # Cambiado de DEBUG a INFO
             except:
                 pass
         
@@ -518,72 +582,110 @@ class PythonScriptWrapper:
         logging.getLogger().propagate = True
         
         try:
+            # Extraer archivos de la BD a directorio temporal
+            script_path = self._extract_files_from_db(self.bulletin_name)
+            
             # Importar el script dinámicamente
-            spec = importlib.util.spec_from_file_location("user_script", self.script_path)
+            spec = importlib.util.spec_from_file_location("user_script", script_path)
             if spec is None or spec.loader is None:
                 return {
                     'success': False,
-                    'error': f"No se pudo cargar el script: {self.script_path}",
+                    'error': f"No se pudo cargar el script: {script_path}",
                     'logs': log_capture.getvalue()
                 }
             
             module = importlib.util.module_from_spec(spec)
             
-            # Preparar el entorno con las rutas resueltas
+            # Preparar el entorno con las rutas del directorio temporal
             import os
             import builtins
+            import sys
+            from pathlib import Path
+            
+            # Agregar el directorio temporal al sys.path
+            sys.path.insert(0, str(self.temp_dir))
             
             # Guardar funciones originales
             original_exists = os.path.exists
             original_open = open
             
             def smart_open(path, *args, **kwargs):
-                """Función open que resuelve rutas desde la base de datos"""
-                # Primero buscar en la base de datos
-                from models.database import SessionLocal, FileAsset
-                db = SessionLocal()
+                """Función open que resuelve rutas desde el directorio temporal"""
                 try:
-                    # Extraer nombre del archivo
-                    file_name = path.replace('./', '').replace('\\', '').replace('template/', '').replace('images/', '')
+                    # Normalizar la ruta
+                    normalized_path = str(path).replace('./', '').replace('\\', '/')
                     
-                    # Buscar en FileAssets
-                    asset = db.query(FileAsset).filter(
-                        FileAsset.file_name.like(f"%{file_name}%")
-                    ).order_by(FileAsset.created_at.desc()).first()
+                    # Si la ruta empieza con 'template/' (singular), cambiar a 'templates/' (plural)
+                    if normalized_path.startswith('template/'):
+                        normalized_path = 'templates/' + normalized_path[len('template/'):]
                     
-                    if asset:
-                        # Devolver el contenido desde la base de datos
-                        if 'r' in args and 'b' not in args:
-                            return io.StringIO(asset.file_content)
-                        else:
-                            return io.BytesIO(base64.b64decode(asset.file_content))
+                    # Lista de posibles ubicaciones
+                    possible_paths = [
+                        self.temp_dir / normalized_path,
+                        self.temp_dir / 'templates' / Path(normalized_path).name,
+                        self.temp_dir / 'images' / Path(normalized_path).name,
+                        self.temp_dir / 'queries' / Path(normalized_path).name,
+                    ]
+                    
+                    # Si la ruta contiene prefijos, quitarlos y probar en cada directorio
+                    clean_name = Path(normalized_path).name
+                    possible_paths.extend([
+                        self.temp_dir / clean_name,
+                        self.temp_dir / 'templates' / clean_name,
+                        self.temp_dir / 'images' / clean_name,
+                        self.temp_dir / 'queries' / clean_name,
+                    ])
+                    
+                    # Buscar el primer archivo que exista
+                    for possible_path in possible_paths:
+                        if possible_path.exists() and possible_path.is_file():
+                            # Comentado para evitar loop infinito de logging
+                            # self.logger.debug(f"📂 Encontrado: {path} -> {possible_path}")
+                            return original_open(possible_path, *args, **kwargs)  # Usar original_open
+                    
+                    # Si no se encuentra, loggear solo errores críticos
+                    # self.logger.warning(f"📂 No encontrado: {path}")
+                    # self.logger.debug(f"   Buscado en: {[str(p) for p in possible_paths]}")
                     
                 except Exception as e:
-                    self.logger.error(f"Error buscando archivo en BD: {str(e)}")
-                finally:
-                    db.close()
+                    self.logger.error(f"Error en smart_open: {str(e)}")
                 
-                # Si no se encuentra en BD, usar la función original
+                # Si no se encuentra, usar la función original
                 return original_open(path, *args, **kwargs)
             
             def smart_exists(path):
-                """Función exists que resuelve rutas desde la base de datos"""
-                # Similar a smart_open pero para exists
-                from models.database import SessionLocal, FileAsset
-                db = SessionLocal()
+                """Función exists que resuelve rutas desde el directorio temporal"""
                 try:
-                    file_name = path.replace('./', '').replace('\\', '').replace('template/', '').replace('images/', '')
-                    asset = db.query(FileAsset).filter(
-                        FileAsset.file_name.like(f"%{file_name}%")
-                    ).order_by(FileAsset.created_at.desc()).first()
+                    normalized_path = str(path).replace('./', '').replace('\\', '/')
                     
-                    if asset:
-                        return True
+                    # Si la ruta empieza con 'template/' (singular), cambiar a 'templates/' (plural)
+                    if normalized_path.startswith('template/'):
+                        normalized_path = 'templates/' + normalized_path[len('template/'):]
                     
-                except Exception:
-                    pass
-                finally:
-                    db.close()
+                    # Lista de posibles ubicaciones
+                    possible_paths = [
+                        self.temp_dir / normalized_path,
+                        self.temp_dir / 'templates' / Path(normalized_path).name,
+                        self.temp_dir / 'images' / Path(normalized_path).name,
+                        self.temp_dir / 'queries' / Path(normalized_path).name,
+                    ]
+                    
+                    # Si la ruta contiene prefijos, quitarlos y probar en cada directorio
+                    clean_name = Path(normalized_path).name
+                    possible_paths.extend([
+                        self.temp_dir / clean_name,
+                        self.temp_dir / 'templates' / clean_name,
+                        self.temp_dir / 'images' / clean_name,
+                        self.temp_dir / 'queries' / clean_name,
+                    ])
+                    
+                    # Buscar el primer archivo que exista
+                    for possible_path in possible_paths:
+                        if possible_path.exists():
+                            return True
+                    
+                except Exception as e:
+                    self.logger.error(f"Error en smart_exists: {str(e)}")
                 
                 return original_exists(path)
             
@@ -593,7 +695,7 @@ class PythonScriptWrapper:
             
             try:
                 # Ejecutar el script con captura de errores detallada
-                self.logger.info("🔧 Cargando y ejecutando módulo...")
+                self.logger.info("🔧 Cargando y ejecutando módulo desde directorio temporal...")
                 spec.loader.exec_module(module)
                 self.logger.info("🔧 Módulo ejecutado, verificando resultados...")
                 
@@ -667,6 +769,10 @@ class PythonScriptWrapper:
                 os.path.exists = original_exists
                 builtins.open = original_open
                 
+                # Restaurar sys.path
+                if str(self.temp_dir) in sys.path:
+                    sys.path.remove(str(self.temp_dir))
+                
         except Exception as e:
             self.logger.error(f"Error ejecutando script: {str(e)}", exc_info=True)
             return {
@@ -690,6 +796,9 @@ class PythonScriptWrapper:
                         pass
             except:
                 pass
+            
+            # Limpiar directorio temporal
+            self._cleanup_temp_dir()
     
     def _resolve_file_path(self, relative_path: str, bulletin_name: str) -> str:
         """

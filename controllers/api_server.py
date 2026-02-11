@@ -465,6 +465,122 @@ async def save_settings(request: Request):
     finally:
         db.close()
 
+@app.post("/api/retry-execution/{log_id}")
+async def retry_execution(log_id: str):
+    """API para reintentar una ejecución fallida"""
+    db = SessionLocal()
+    try:
+        # Buscar la ejecución original por log_id
+        execution = db.query(ExecutionLog).filter(ExecutionLog.log_id == log_id).first()
+        
+        if not execution:
+            raise HTTPException(status_code=404, detail="Ejecución no encontrada")
+        
+        # Obtener el schedule asociado
+        schedule = db.query(Schedule).filter(Schedule.schedule_id == execution.schedule_id).first()
+        
+        if not schedule:
+            raise HTTPException(status_code=404, detail="Programación no encontrada")
+        
+        # Obtener el newsletter asociado al schedule
+        newsletter = db.query(Newsletter).filter(Newsletter.newsletter_id == schedule.newsletter_id).first()
+        
+        if not newsletter:
+            raise HTTPException(status_code=404, detail="Boletín no encontrado")
+        
+        # Incrementar contador de reintentos en la ejecución original
+        execution.retry_count += 1
+        db.commit()
+        
+        # Crear un nuevo registro de ejecución para el reintento
+        new_execution = ExecutionLog(
+            schedule_id=schedule.schedule_id,
+            status='RUNNING',
+            started_at=datetime.utcnow(),
+            retry_count=0,
+            triggered_by='MANUAL_RETRY'
+        )
+        db.add(new_execution)
+        db.commit()
+        db.refresh(new_execution)
+        
+        # Ejecutar el boletín nuevamente
+        result = system_engine.execute_bulletin(newsletter.name, manual=True)
+        
+        # Actualizar el estado de la nueva ejecución
+        if result['success']:
+            new_execution.status = 'SUCCESS'
+            new_execution.finished_at = datetime.utcnow()
+            db.commit()
+            
+            return {
+                'success': True,
+                'message': f'Ejecución de "{newsletter.name}" completada exitosamente',
+                'execution_id': new_execution.log_id,
+                'status': 'success'
+            }
+        else:
+            new_execution.status = 'FAILED'
+            new_execution.finished_at = datetime.utcnow()
+            new_execution.error_detail = result.get('error', 'Error desconocido')
+            db.commit()
+            
+            return {
+                'success': False,
+                'message': f'Error en ejecución: {result.get("error", "Error desconocido")}',
+                'execution_id': new_execution.log_id,
+                'status': 'failed'
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reintentando ejecución {log_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error reintentando ejecución")
+    finally:
+        db.close()
+
+@app.get("/api/execution-status/{log_id}")
+async def get_execution_status(log_id: str):
+    """API para obtener el estado de una ejecución"""
+    db = SessionLocal()
+    try:
+        # Buscar la ejecución por log_id
+        execution = db.query(ExecutionLog).filter(ExecutionLog.log_id == log_id).first()
+        
+        if not execution:
+            raise HTTPException(status_code=404, detail="Ejecución no encontrada")
+        
+        # Determinar el estado
+        status = 'running'
+        message = 'Ejecución en progreso'
+        
+        if execution.finished_at:
+            if execution.status == 'SUCCESS':
+                status = 'success'
+                message = 'Ejecución completada exitosamente'
+            else:
+                status = 'failed'
+                message = execution.error_detail or 'Ejecución fallida'
+        
+        return {
+            'status': status,
+            'message': message,
+            'execution_id': execution.log_id,
+            'started_at': execution.started_at.isoformat() if execution.started_at else None,
+            'finished_at': execution.finished_at.isoformat() if execution.finished_at else None,
+            'success': execution.status == 'SUCCESS',
+            'error_detail': execution.error_detail
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error obteniendo estado de ejecución {log_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error obteniendo estado de ejecución")
+    finally:
+        db.close()
+
 def start_api_server():
     """Iniciar servidor API"""
     # logger.info("🌐 Iniciando servidor API en http://127.0.0.1:8000")

@@ -93,16 +93,25 @@
                     <div class="table-card">
                         <div class="table-header">
                             <h3><i class="fas fa-history"></i> Últimos Envíos</h3>
-                            <div class="table-actions">
-                                <button class="btn-filter" onclick="filterTable('envios', 'all')">
-                                    Todos
-                                </button>
-                                <button class="btn-filter" onclick="filterTable('envios', 'success')">
-                                    <i class="fas fa-check-circle"></i> Éxito
-                                </button>
-                                <button class="btn-filter" onclick="filterTable('envios', 'failed')">
-                                    <i class="fas fa-times-circle"></i> Fallidos
-                                </button>
+                            <div class="table-controls">
+                                <div class="date-filter">
+                                    <label for="fecha-filter">Fecha:</label>
+                                    <input type="date" id="fecha-filter" class="form-control">
+                                    <button class="btn-clear-date" onclick="clearDateFilter()" title="Limpiar fecha">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                                <div class="table-actions">
+                                    <button class="btn-filter" onclick="filterTable('envios', 'all')">
+                                        Todos
+                                    </button>
+                                    <button class="btn-filter" onclick="filterTable('envios', 'success')">
+                                        <i class="fas fa-check-circle"></i> Éxito
+                                    </button>
+                                    <button class="btn-filter" onclick="filterTable('envios', 'failed')">
+                                        <i class="fas fa-times-circle"></i> Fallidos
+                                    </button>
+                                </div>
                             </div>
                         </div>
                         <div class="table-container">

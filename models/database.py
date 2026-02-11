@@ -42,9 +42,9 @@ class Newsletter(Base):
     subject_line = Column(String)
     html_template = Column(Text)
     dax_queries = Column(JSON)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
     created_by = Column(ForeignKey("users.user_id"))
-    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.now)
     updated_by = Column(ForeignKey("users.user_id"), nullable=True)
 
 class Recipient(Base):
