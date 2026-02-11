@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.5">
+    <title>Dashboard - Sistema de Boletines</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-chart-line"></i>
+                    <h1>Dashboard Boletines</h1>
+                </div>
+                <div class="header-info">
+                    <span id="current-time" class="time"></span>
+                </div>
+                <div class="header-info">
+                    <button class="action-btn tertiary" onclick="showSettings()">
+                        <i class="fas fa-cog"></i>Configuración
+                    </button>
+                    <button id="refresh-btn" class="btn-refresh">
+                        <i class="fas fa-sync-alt"></i> Actualizar
+                    </button>
+                </div>
+                
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Stats Cards -->
+            <section class="stats-section">
+                <div class="stats-grid">
+                    <!-- Envíos de Hoy -->
+                    <div class="stat-card success">
+                        <div class="stat-icon">
+                            <i class="fas fa-paper-plane"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h3>Envíos de Hoy</h3>
+                            <div class="stat-number" id="envios-hoy">0</div>
+                            <div class="stat-label">Boletines enviados</div>
+                        </div>
+                    </div>
+
+                    <!-- Fallidos -->
+                    <div class="stat-card error">
+                        <div class="stat-icon">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h3>Fallidos</h3>
+                            <div class="stat-number" id="envios-fallidos">0</div>
+                            <div class="stat-label">Errores detectados</div>
+                        </div>
+                    </div>
+
+                    <!-- Próximos Envíos -->
+                    <div class="stat-card info">
+                        <div class="stat-icon">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h3>Próximos</h3>
+                            <div class="stat-number" id="proximos-envios">0</div>
+                            <div class="stat-label">Programados hoy</div>
+                        </div>
+                    </div>
+
+                    <!-- Tareas Activas -->
+                    <div class="stat-card warning">
+                        <div class="stat-icon">
+                            <i class="fas fa-tasks"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h3>Tareas Activas</h3>
+                            <div class="stat-number" id="tareas-activas">0</div>
+                            <div class="stat-label">Total habilitadas</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tables Section -->
+            <section class="tables-section">
+                <div class="tables-grid">
+                    <!-- Últimos Envíos -->
+                    <div class="table-card">
+                        <div class="table-header">
+                            <h3><i class="fas fa-history"></i> Últimos Envíos</h3>
+                            <div class="table-actions">
+                                <button class="btn-filter" onclick="filterTable('envios', 'all')">
+                                    Todos
+                                </button>
+                                <button class="btn-filter" onclick="filterTable('envios', 'success')">
+                                    <i class="fas fa-check-circle"></i> Éxito
+                                </button>
+                                <button class="btn-filter" onclick="filterTable('envios', 'failed')">
+                                    <i class="fas fa-times-circle"></i> Fallidos
+                                </button>
+                            </div>
+                        </div>
+                        <div class="table-container">
+                            <table id="envios-table" class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Fecha</th>
+                                        <th>Boletín</th>
+                                        <th>Estado</th>
+                                        <th>Duración</th>
+                                        <th>Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="envios-tbody">
+                                    <!-- Datos cargados dinámicamente -->
+                                </tbody>
+                            </table>
+                            <div class="loading" id="envios-loading">
+                                <i class="fas fa-spinner fa-spin"></i> Cargando...
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Próximos Envíos -->
+                    <div class="table-card">
+                        <div class="table-header">
+                            <h3><i class="fas fa-calendar-alt"></i> Próximos Envíos</h3>
+                            <div class="table-actions">
+                                <button class="btn-add" id="btn-add-bulletin">
+                                    <i class="fas fa-plus"></i> Nuevo Boletín
+                                </button>
+                            </div>
+                        </div>
+                        <div class="table-container">
+                            <!-- Filtro de Estado -->
+                            <div class="filter-container">
+                                <div class="filter-group">
+                                    <label for="estado-filter">Filtrar por estado:</label>
+                                    <select id="estado-filter" class="filter-select">
+                                        <option value="todos">Todos los boletines</option>
+                                        <option value="enabled">Solo activos</option>
+                                        <option value="disabled">Solo desactivados</option>
+                                    </select>
+                                </div>
+                                <div class="filter-info">
+                                    <span id="filter-count">Mostrando 0 boletines</span>
+                                </div>
+                            </div>
+                            <table id="proximos-table" class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Boletín</th>
+                                        <th>Hora</th>
+                                        <th>Estado</th>
+                                        <th>Última Ejecución</th>
+                                        <th>Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="proximos-tbody">
+                                    <!-- Datos cargados dinámicamente -->
+                                </tbody>
+                            </table>
+                            <div class="loading" id="proximos-loading">
+                                <i class="fas fa-spinner fa-spin"></i> Cargando...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-overlay" class="modal-overlay">
+        <div id="modal-content" class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Título</h3>
+                <button class="modal-close" onclick="closeModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div id="modal-body" class="modal-body">
+                <!-- Contenido dinámico -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden file inputs for multiple file uploads -->
+    <input type="file" id="script-input" accept=".py" style="display: none;">
+    <input type="file" id="query-input" accept=".json" style="display: none;" multiple>
+    <input type="file" id="template-input" accept=".html,.htm" style="display: none;">
+    <input type="file" id="images-input" accept="image/*" style="display: none;" multiple>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Script del Dashboard -->
+    <script src="/static/dashboard.js"></script>
+</body>
+</html>

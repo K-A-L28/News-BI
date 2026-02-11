@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <title>San Rafael BI Daily Insights</title>
+</head>
+
+<body style="margin:0; padding:0; background:#f4f4f4;">
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr>
+      <td align="center" style="padding: 20px 0;">
+
+        <table role="presentation" width="800" cellpadding="0" cellspacing="0" border="0"
+          style="max-width:100%; background:#ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+          <!-- Encabezado -->
+          <tr>
+            <td bgcolor="#1E96CC" style="padding:20px 24px; color:#ffffff; font-family:Arial, sans-serif;">
+              <table role="presentation" width="100%">
+                <tr>
+                  <td style="font-size:22px; font-weight:bold; letter-spacing: -0.5px;">
+                    San Rafael B<span style="font-size: 22px; font-weight: bold; color: rgb(109,58,111); ">I Daily Insights
+                    <div style="font-size: 14px; font-weight: normal; color: #dbeafe; margin-top: 4px;">Censo de
+                      Pacientes</div>
+                  </td>
+                  <td align="right" style="font-size:12px; color:#dbeafe; vertical-align: top;">
+                    {FECHA}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <!-- Resumen Ejecutivo / Metricas clave-->
+          <tr>
+            <td style="padding:24px; font-family:Arial, sans-serif;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td valign="top">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td 
+                          style="padding:20px;">
+                          <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                            <tr>
+                              <td style="padding-bottom: 12px;">
+                                <span style="font-size:16px; font-weight:bold; color:#2BA3D6">Resumen
+                                  Ejecutivo</span><span
+                                  style="font-size:14px; color:#2BA3D6; margin-left: 12px; border-left: 1px solid #126ee6; padding-left: 12px;">Ocup
+                                  G:</span><span
+                                  style="font-size:16px; color:#011120; margin-left: 6px;">{PROMEDIO_OCUPACION}%</span><span
+                                  style="font-size:14px; color:#2BA3D6; margin-left: 12px; border-left: 1px solid #126ee6; padding-left: 12px;">Est
+                                  G:</span><span
+                                  style="font-size:16px; color:#011120; margin-left: 6px;">{PROMEDIO_ESTANCIA}</span>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td>
+                                <div
+                                  style="margin-top: 16px; font-size: 14px; line-height: 1.6; color: #011120;">
+                                  {RESUMEN_EJECUTIVO}
+                                </div>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td>
+                                <div style="margin-top: 16px; font-size: 14px; line-height: 1.6; color: #011120;">
+                                  <span style="font-size:14px; font-weight: bold; color:#2BA3D6;">Camas Inhabilitadas:</span><span
+                                  style="font-size:14px; color:#011120; margin-left: 6px;">{CAMAS_INHABILITADAS}</span>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <!-- Alertas -->
+          <tr>
+            <td style="padding:0 24px 24px; font-family:Arial, sans-serif;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                <tr>
+                  <td height="100" valign="top" style="padding-right:24px;">
+                    <img src="{AVATAR_SRC}" alt="Logo" width="180"
+                      style="display:block; border:0; border-radius: 4px;" />
+                  </td>
+                  <!-- <td  height="100%" valign="top" style="padding-right:24px;">
+                    <img src="./avatar_logo.png" alt="Logo" width="180"
+                      style="display:block; border:0; border-radius: 4px;" />
+                  </td> -->
+
+                  <td valign="center">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+
+                      <tr>
+                        <td
+                          style="padding-bottom: 8px; font-size:14px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; font-family: Arial, sans-serif;">
+                          Alertas para ocupación
+                        </td>
+                      </tr>
+
+                      {BLOQUE_ALERTA_ALTA}
+
+                      {BLOQUE_ALERTA_BAJA}
+
+                      <tr>
+                        <td
+                          style="padding-bottom: 8px; font-size:14px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; font-family: Arial, sans-serif;">
+                          Alertas para estancia
+                        </td>
+                      </tr>
+
+                      <tr>
+                        <td>
+                          {BLOQUE_ALERTA_ESTANCIA}
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="height:20px;"></td>
+          </tr>
+          <!-- TABLA RESUMEN -->
+          <tr>
+            <td style="height:20px;"></td>
+          </tr>
+
+          <div style="background-color: #8e949b; width: 100%; height: 2px;"></div>
+          <tr>
+            <td style="padding:0 24px 24px; font-family:Arial, sans-serif;">
+              <div
+                style="font-size:16px; font-weight:bold; color:#4BB3E6; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
+                Resumen por Sede</div>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" 
+                style="border-collapse:collapse; font-size:13px; border: 0.6px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+                <thead>
+                    <tr bgcolor="#1E96CC" style="color: white; font-weight: bold;">
+                        <td style="padding: 10px; text-align: left; border-right: 0.6px solid #e2e8f0;">Sede</td>
+                        <td style="padding: 10px; text-align: center; border-right: 0.6px solid #e2e8f0;">Ocupación</td>
+                        <td style="padding: 10px; text-align: center; border-right: 0.6px solid #e2e8f0;">Estancia Promedio</td>
+                        <td style="padding: 10px; text-align: center; border-right: 0.6px solid #e2e8f0;">Camas Ocupadas/Total</td>
+                        <td style="padding: 10px; text-align: right;">Total Facturado <span class="currentYear">({MES})</span></td>
+                    </tr>
+                </thead>
+                  <tbody>
+                    {TABLA_HTML_OCUPACION_Y_FACTURACION}
+                  </tbody>
+                </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="height:20px;"></td>
+          </tr>
+        
+          <!-- Tabla para mostrar top 10 aseguradoras -->
+          <tr>
+            <td style="padding:0 24px 24px; font-family:Arial, sans-serif;">
+              <div
+                style="font-size:16px; font-weight:bold; color:#9FA3A0; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
+                Top 10 aseguradoras de {FECHA_EXPLICITA}</div>
+
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                style="margin-top:4px; border-collapse:collapse; font-size:13px; border: 0.6px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+                <thead>
+                  <tr bgcolor="#64748b" style="color: white; font-weight: bold;">
+                    <td style="padding: 8px; border-right: 0.6px solid #ddd; text-align: center;">Aseguradora</td>
+                    <td style="padding: 8px; border-right: 0.6px solid #ddd; text-align: center;">Tipo</td>
+                    <td style="padding: 8px; text-align: center;">Total de facturado</td>
+                  </tr>
+                </thead>
+                <tbody style="color: #334155;">
+                  {TABLA_HTML_ASEGURADORAS}
+                </tbody>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="height:20px;"></td>
+          </tr>
+
+          <!-- Satisfacción del Paciente -->
+          <tr>
+            <td style="padding:0 24px 30px; font-family:Arial, sans-serif;">
+              <div
+                style="font-size:16px; font-weight:bold; color:#4BB3E6; margin-bottom: 12px; text-transform: uppercase;">
+                Satisfacción del Paciente ({FECHA_EXPLICITA})
+              </div>
+
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                style="border-collapse: collapse; border: 2px solid #e2e8f0;">
+                <thead>
+                  <tr bgcolor="#1E96CC">
+                    <th width="40%" align="left"
+                      style="padding:12px 15px; color:#ffffff; font-size:14px; font-weight:bold; border-right: 0.6px solid #ffffff;">
+                      Indicador/Métrica</th>
+                    <th width="30%" align="center"
+                      style="padding:12px 15px; color:#ffffff; font-size:14px; font-weight:bold; border-right: 0.6px solid #ffffff;">
+                      Pereira</th>
+                    <th width="30%" align="center"
+                      style="padding:12px 15px; color:#ffffff; font-size:14px; font-weight:bold;">Armenia</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  <tr>
+                    <td style="padding:12px; border-bottom: 0.6px solid #f1f5f9; color:#475569; font-weight:bold;">
+                      Satisfacción:</td>
+                    <td align="left"
+                      style="padding:12px; border-bottom: 0.6px solid #f1f5f9; border-left: 0.6px solid #e2e8f0; font-weight:bold; font-size:16px;">
+                      {SATISFACCION_PEREIRA}</td>
+                    <td align="left"
+                      style="padding:12px; border-bottom: 0.6px solid #f1f5f9; border-left: 0.6px solid #e2e8f0; font-weight:bold; font-size:16px;">
+                      {SATISFACCION_ARMENIA}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:12px; border-bottom: 0.6px solid #f1f5f9; color:#475569; font-weight:bold;">
+                      Encuestas:</td>
+                    <td align="left"
+                      style="padding:12px; border-bottom: 0.6px solid #f1f5f9; border-left: 0.6px solid #e2e8f0; font-weight:bold; font-size:16px;">
+                      {TOTAL_ENCUESTAS_PEREIRA}</td>
+                    <td align="left"
+                      style="padding:12px; border-bottom: 0.6px solid #f1f5f9; border-left: 0.6px solid #e2e8f0; font-weight:bold; font-size:16px;">
+                      {TOTAL_ENCUESTAS_ARMENIA}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:12px; border-bottom: 0.6px solid #f1f5f9; color:#707b8e; font-size:13px;">NPS
+                      (Promotor - Pasivo - Detractor)</td>
+                    <td align="left"
+                      style="padding:12px; border-bottom: 0.6px solid #f1f5f9; border-left: 0.6px solid #e2e8f0; font-size:12px; color:#333;">
+                      {NPS_PEREIRA}</td>
+                    <td align="left"
+                      style="padding:12px; border-bottom: 0.6px solid #f1f5f9; border-left: 0.6px solid #e2e8f0; font-size:12px; color:#333;">
+                      {NPS_ARMENIA}</td>
+                  </tr>
+
+                  <tr bgcolor="#64748b">
+                    <td colspan="3" style="padding: 10px 15px; border-bottom: 0.6px solid #f1f5f9; font-size:11px; color:#e2e8f0; letter-spacing: 1px;">
+                      INDICADORES CLAVE</td>
+                  </tr>
+
+                  <tr>
+                    <td
+                      style="padding:10px 15px; font-size:12px; font-weight:bold; color:#003366; text-transform: uppercase;">
+                      Actitud y Calidez:</td>
+                    <td align="left" style="padding:10px 15px; border-left: 0.6px solid #e2e8f0; font-size:14px;">
+                      <span style="color:#22c55e; font-weight:bold;">{ACTITUD_BIEN_PEREIRA}</span> - <span
+                        style="color:#ef4444; font-weight:bold;">{ACTITUD_MALA_PEREIRA}</span>
+                    </td>
+                    <td align="left" style="padding:10px 15px; border-left: 0.6px solid #e2e8f0; font-size:14px;">
+                      <span style="color:#22c55e; font-weight:bold;">{ACTITUD_BIEN_ARMENIA}</span> - <span
+                        style="color:#ef4444; font-weight:bold;">{ACTITUD_MALA_ARMENIA}</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td
+                      style="padding:10px 15px; font-size:12px; font-weight:bold; color:#003366; text-transform: uppercase;">
+                      Comunicación y Transparencia:</td>
+                    <td align="left" style="padding:10px 15px; border-left: 0.6px solid #e2e8f0; font-size:14px;">
+                      <span style="color:#22c55e; font-weight:bold;">{COMUNICACION_BIEN_PEREIRA}</span> - <span
+                        style="color:#ef4444; font-weight:bold;">{COMUNICACION_MALA_PEREIRA}</span>
+                    </td>
+                    <td align="left" style="padding:10px 15px; border-left: 0.6px solid #e2e8f0; font-size:14px;">
+                      <span style="color:#22c55e; font-weight:bold;">{COMUNICACION_BIEN_ARMENIA}</span> - <span
+                        style="color:#ef4444; font-weight:bold;">{COMUNICACION_MALA_ARMENIA}</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td
+                      style="padding:10px 15px; font-size:12px; font-weight:bold; color:#003366; text-transform: uppercase;">
+                      Excelencia y Calidad:</td>
+                    <td align="left" style="padding:10px 15px; border-left: 0.6px solid #e2e8f0; font-size:14px;">
+                      <span style="color:#22c55e; font-weight:bold;">{EXCELENCIA_BIEN_PEREIRA}</span> - <span
+                        style="color:#ef4444; font-weight:bold;">{EXCELENCIA_MALA_PEREIRA}</span>
+                    </td>
+                    <td align="left" style="padding:10px 15px; border-left: 0.6px solid #e2e8f0; font-size:14px;">
+                      <span style="color:#22c55e; font-weight:bold;">{EXCELENCIA_BIEN_ARMENIA}</span> - <span
+                        style="color:#ef4444; font-weight:bold;">{EXCELENCIA_MALA_ARMENIA}</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td
+                      style="padding:10px 15px 30px; font-size:12px; font-weight:bold; color:#003366; text-transform: uppercase;">
+                      Respeto y Responsabilidad:</td>
+                    <td align="left" style="padding:10px 15px 30px; border-left: 0.6px solid #e2e8f0; font-size:14px;">
+                      <span style="color:#22c55e; font-weight:bold;">{RESPETO_BIEN_PEREIRA}</span> - <span
+                        style="color:#ef4444; font-weight:bold;">{RESPETO_MALA_PEREIRA}</span>
+                    </td>
+                    <td align="left" style="padding:10px 15px 30px; border-left: 0.6px solid #e2e8f0; font-size:14px;">
+                      <span style="color:#22c55e; font-weight:bold;">{RESPETO_BIEN_ARMENIA}</span> - <span
+                        style="color:#ef4444; font-weight:bold;">{RESPETO_MALA_ARMENIA}</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </td>
+          </tr> 
+
+          <tr>
+            <td bgcolor="#f8fafc"
+              style="padding:30px 24px; text-align: center; font-family: Arial, sans-serif; border-top: 1px solid #e2e8f0;">
+              <p style="font-size:11px; color:#94a3b8; margin-bottom: 20px; line-height: 1.4;">
+                Nota: Los valores reflejan sedes con actividad registrada. Áreas sin actividad no se incluyen en los
+                cálculos.
+              </p>
+              <a href="{POWERBI_REPORT_URL}"
+                style="display: inline-block; padding: 12px 20px; background: #1E96CC; color: #ffffff; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 13px; margin: 5px;">Ver
+                Ocupación en Power BI</a>
+              <a href="{POWERBI_REPORT_URL_2}"
+                style="display: inline-block; padding: 12px 20px; border: 2px solid #1E96CC; color: #1E96CC; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 13px; margin: 5px;">Ver
+                Satisfacción en Power BI</a>
+            </td>
+          </tr>
+        </table>
+
+        <p style="font-size: 11px; color: #a7aaad; margin-top: 20px;">
+          &copy; <span class="currentYear">2026</span> Socimedicos S.A.S. | Inteligencia de Negocios | Developed by Kevin
+          A.L.
+        </p>
+        <script>
+          const currentYearElements = document.getElementsByClassName('currentYear');
+          const currentYear = new Date().getFullYear();
+          for (let i = 0; i < currentYearElements.length; i++) {
+            currentYearElements[i].textContent = currentYear;
+          }
+        </script>
+      </td>
+    </tr>
+  </table>
+</body>
+
+</html>

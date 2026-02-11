@@ -1,0 +1,62 @@
+{
+    "report_config": {
+        "hospital_name": "Clínica San Rafael",
+        "pages": [
+            {
+                "page_id": "Pereira",
+                "display_name": "PEREIRA",
+                "queries": [
+                    {
+                        "query_id": "KPI-Global-bien-Pereira",
+                        "description": "% Global calificación bien Pereira",
+                        "dax": "DEFINE VAR _Mes = MONTH(TODAY()) VAR _Anio = YEAR(TODAY()) EVALUATE { CALCULATE(FORMAT([% global bien], \"0.0000\"), Calendario[Mes] = _Mes, YEAR(pereira[FechaSolo]) = _Anio) }"
+                    },
+                    {
+                        "query_id": "nps_pereira_Mes",
+                        "description": "NPS mensual Pereira (promotores/pasivos/detractores/NPS)",
+                        "dax": "DEFINE VAR __Anio = YEAR ( TODAY () ) VAR __Mes = MONTH ( TODAY () ) VAR __DS0Core = SUMMARIZECOLUMNS ( 'pereira'[recomendaria], TREATAS ( { \"PROMOTOR\", \"PASIVO\", \"DETRACTOR\" }, 'pereira'[recomendaria] ), \"Countrecomendaria\", CALCULATE ( COUNTA ( 'pereira'[recomendaria] ), MONTH ( 'pereira'[FechaSolo] ) = __Mes, YEAR ( 'pereira'[FechaSolo] ) = __Anio ), \"pereiraCountrecomendaria\", IGNORE ( CALCULATE ( COUNTA ( 'pereira'[recomendaria] ) ) ), \"PctRecomendaria\", FORMAT ( DIVIDE ( CALCULATE ( COUNTA ( 'pereira'[recomendaria] ), MONTH ( 'pereira'[FechaSolo] ) = __Mes, YEAR ( 'pereira'[FechaSolo] ) = __Anio ), CALCULATE ( COUNTA ( 'pereira'[recomendaria] ), ALL ( 'pereira'[recomendaria] ), TREATAS ( { \"PROMOTOR\", \"PASIVO\", \"DETRACTOR\" }, 'pereira'[recomendaria] ), MONTH ( 'pereira'[FechaSolo] ) = __Mes, YEAR ( 'pereira'[FechaSolo] ) = __Anio ) ), \"0.00\" ), \"PctRecomendariaPct\", FORMAT ( 100.0 * DIVIDE ( CALCULATE ( COUNTA ( 'pereira'[recomendaria] ), MONTH ( 'pereira'[FechaSolo] ) = __Mes, YEAR ( 'pereira'[FechaSolo] ) = __Anio ), CALCULATE ( COUNTA ( 'pereira'[recomendaria] ), ALL ( 'pereira'[recomendaria] ), TREATAS ( { \"PROMOTOR\", \"PASIVO\", \"DETRACTOR\" }, 'pereira'[recomendaria] ), MONTH ( 'pereira'[FechaSolo] ) = __Mes, YEAR ( 'pereira'[FechaSolo] ) = __Anio ) ), \"0.00\" ) ) VAR __DS0BodyLimited = TOPN ( 1002, __DS0Core, [Countrecomendaria], 0, 'pereira'[recomendaria], 1 ) EVALUATE __DS0BodyLimited ORDER BY [Countrecomendaria] DESC, 'pereira'[recomendaria]"
+                    },
+                    {
+                        "query_id": "indicadores_pereira_Mes",
+                        "description": "Indicadores mensuales Pereira",
+                        "dax": "DEFINE VAR __Anio = YEAR(TODAY()) VAR __Mes = MONTH(TODAY()) VAR __Filtro = FILTER ( 'pereira', MONTH ( 'pereira'[FechaSolo] ) = __Mes && YEAR ( 'pereira'[FechaSolo] ) = __Anio ) VAR __DS0Core = UNION ( ROW ( \"Categoria\", \"ACTITUD Y CALIDEZ\", \"PctBien\", FORMAT ( CALCULATE ( 'pereira'[% bien Actitud y Calidez], __Filtro ), \"0.00\" ), \"PctMala\", FORMAT ( CALCULATE ( 'pereira'[% mala Actitud y Calidez], __Filtro ), \"0.00\" ) ), ROW ( \"Categoria\", \"COMUNICACIÓN Y TRANSPARENCIA\", \"PctBien\", FORMAT ( CALCULATE ( 'pereira'[% bien Comunicación y transparencia], __Filtro ), \"0.00\" ), \"PctMala\", FORMAT ( CALCULATE ( 'pereira'[% mala Comunicación y transparencia], __Filtro ), \"0.00\" ) ), ROW ( \"Categoria\", \"EXCELENCIA Y CALIDAD\", \"PctBien\", FORMAT ( CALCULATE ( 'pereira'[% bien Excelencia y calidad], __Filtro ), \"0.00\" ), \"PctMala\", FORMAT ( CALCULATE ( 'pereira'[% mala Excelencia y calidad], __Filtro ), \"0.00\" ) ), ROW ( \"Categoria\", \"RESPETO Y RESPONSABILIDAD\", \"PctBien\", FORMAT ( CALCULATE ( 'pereira'[% bien Respeto y responsabilidad], __Filtro ), \"0.00\" ), \"PctMala\", FORMAT ( CALCULATE ( 'pereira'[% mala Respeto y responsabilidad], __Filtro ), \"0.00\" ) ) ) VAR __DS0BodyLimited = TOPN ( 1002, __DS0Core, [Categoria], 1, [PctBien], 0 ) EVALUATE __DS0BodyLimited ORDER BY [Categoria]"
+                    },
+                    {
+                        "query_id": "encuesta_pereira_Mes",
+                        "description": "Encuesta mensual Pereira",
+                        "dax": "DEFINE VAR __Anio = YEAR(TODAY()) VAR __Mes = MONTH(TODAY()) VAR __Filtro = FILTER ( 'pereira', MONTH ( 'pereira'[FechaSolo] ) = __Mes && YEAR ( 'pereira'[FechaSolo] ) = __Anio ) VAR __Out = ROW ( \"ciudad\", \"Pereira\", \"anio\", __Anio, \"mes\", __Mes, \"total_encuestas\", CALCULATE ( 'pereira'[Encuesta], __Filtro ) ) EVALUATE __Out"
+                    }
+                ]
+            },
+            {
+                "page_id": "Armenia",
+                "display_name": "ARMENIA",
+                "queries": [
+                    {
+                        "query_id": "KPI-Global-bien-Armenia",
+                        "description": "% Global calificación bien Armenia",
+                        "dax": "DEFINE VAR _Mes = MONTH(TODAY()) VAR _Anio = YEAR(TODAY()) EVALUATE { CALCULATE(FORMAT([% armenia global bien], \"0.0000\"), Calendario[Mes] = _Mes, YEAR(armenia[ArmeniaFechaSolo]) = _Anio) }"
+ 
+                    },
+                    {
+                        "query_id": "nps_armenia_Mes",
+                        "description": "NPS mensual Armenia (promotores/pasivos/detractores/NPS)",
+                        "dax": "DEFINE VAR __Anio = YEAR(TODAY()) VAR __Mes = MONTH(TODAY()) VAR __DS0Core = SUMMARIZECOLUMNS ( 'armenia'[armenia recomendaria], TREATAS ( { \"PROMOTOR\", \"PASIVO\", \"DETRACTOR\" }, 'armenia'[armenia recomendaria] ), \"Countrecomendaria\", CALCULATE ( COUNTA ( 'armenia'[armenia recomendaria] ), MONTH ( armenia[ArmeniaFechaSolo] ) = __Mes, YEAR ( armenia[ArmeniaFechaSolo] ) = __Anio ), \"armeniaCountrecomendaria\", IGNORE ( CALCULATE ( COUNTA ( 'armenia'[armenia recomendaria] ) ) ), \"PctRecomendaria\", FORMAT ( DIVIDE ( CALCULATE ( COUNTA ( 'armenia'[armenia recomendaria] ), MONTH ( armenia[ArmeniaFechaSolo] ) = __Mes, YEAR ( armenia[ArmeniaFechaSolo] ) = __Anio ), CALCULATE ( COUNTA ( 'armenia'[armenia recomendaria] ), ALL ( 'armenia'[armenia recomendaria] ), TREATAS ( { \"PROMOTOR\", \"PASIVO\", \"DETRACTOR\" }, 'armenia'[armenia recomendaria] ), MONTH ( armenia[ArmeniaFechaSolo] ) = __Mes, YEAR ( armenia[ArmeniaFechaSolo] ) = __Anio ) ), \"0.00\" ), \"PctRecomendariaPct\", FORMAT ( 100.0 * DIVIDE ( CALCULATE ( COUNTA ( 'armenia'[armenia recomendaria] ), MONTH ( armenia[ArmeniaFechaSolo] ) = __Mes, YEAR ( armenia[ArmeniaFechaSolo] ) = __Anio ), CALCULATE ( COUNTA ( 'armenia'[armenia recomendaria] ), ALL ( 'armenia'[armenia recomendaria] ), TREATAS ( { \"PROMOTOR\", \"PASIVO\", \"DETRACTOR\" }, 'armenia'[armenia recomendaria] ), MONTH ( armenia[ArmeniaFechaSolo] ) = __Mes, YEAR ( armenia[ArmeniaFechaSolo] ) = __Anio ) ), \"0.00\" ) ) VAR __DS0BodyLimited = TOPN ( 1002, __DS0Core, [Countrecomendaria], 0, 'armenia'[armenia recomendaria], 1 ) EVALUATE __DS0BodyLimited ORDER BY [Countrecomendaria] DESC, 'armenia'[armenia recomendaria]"
+                    },
+                    {
+                        "query_id": "indicadores_armenia_Mes",
+                        "description": "Indicadores mensuales Armenia",
+                        "dax": "DEFINE VAR __Anio = YEAR ( TODAY () ) VAR __Mes = MONTH ( TODAY () ) VAR __Filtro = FILTER ( 'armenia', MONTH ( 'armenia'[ArmeniaFechaSolo] ) = __Mes && YEAR ( 'armenia'[ArmeniaFechaSolo] ) = __Anio ) VAR __DS0Core = UNION ( ROW ( \"Categoria\", \"ACTITUD Y CALIDEZ\", \"PctBien\", FORMAT ( CALCULATE ( 'armenia'[% armenia bien Actitud y Calidez], __Filtro ), \"0.00\" ), \"PctMala\", FORMAT ( CALCULATE ( 'armenia'[% armenia mala Actitud y Calidez], __Filtro ), \"0.00\" ) ), ROW ( \"Categoria\", \"COMUNICACIÓN Y TRANSPARENCIA\", \"PctBien\", FORMAT ( CALCULATE ( 'armenia'[% armenia bien Comunicación y transparencia], __Filtro ), \"0.00\" ), \"PctMala\", FORMAT ( CALCULATE ( 'armenia'[% armenia mala Comunicación y transparencia], __Filtro ), \"0.00\" ) ), ROW ( \"Categoria\", \"EXCELENCIA Y CALIDAD\", \"PctBien\", FORMAT ( CALCULATE ( 'armenia'[% armenia bien Excelencia y calidad], __Filtro ), \"0.00\" ), \"PctMala\", FORMAT ( CALCULATE ( 'armenia'[% armenia mala Excelencia y calidad], __Filtro ), \"0.00\" ) ), ROW ( \"Categoria\", \"RESPETO Y RESPONSABILIDAD\", \"PctBien\", FORMAT ( CALCULATE ( 'armenia'[% armenia bien Respeto y responsabilidad], __Filtro ), \"0.00\" ), \"PctMala\", FORMAT ( CALCULATE ( 'armenia'[% armenia mala Respeto y responsabilidad], __Filtro ), \"0.00\" ) ) ) VAR __DS0BodyLimited = TOPN ( 1002, __DS0Core, [Categoria], 1, [PctBien], 0 ) EVALUATE __DS0BodyLimited ORDER BY [Categoria]"
+ 
+                    },
+                    {
+                        "query_id": "encuesta_armenia_Mes",
+                        "description": "Encuesta mensual Armenia",
+                        "dax": "DEFINE VAR __Anio = YEAR(TODAY()) VAR __Mes = MONTH(TODAY()) VAR __Filtro = FILTER('armenia', MONTH('armenia'[ArmeniaFechaSolo]) = __Mes && YEAR('armenia'[ArmeniaFechaSolo]) = __Anio) VAR __Out = ROW(\"ciudad\", \"Armenia\", \"anio\", __Anio, \"mes\", __Mes, \"total_encuestas\", CALCULATE('armenia'[Encuestas], __Filtro)) EVALUATE __Out"
+                    }
+                ]
+            }
+        ]
+    }
+}
+ 

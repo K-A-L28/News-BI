@@ -1,0 +1,44 @@
+{
+    "report_config": {
+        "hospital_name": "Clínica San Rafael",
+        "pages": [
+            {
+                "page_id": "tablero_camas",
+                "display_name": "1 - Tablero Camas",
+                "queries": [
+                    {
+                        "query_id": "Grafica1",
+                        "description": "Ocupación por ciudad y sede",
+                        "dax": "DEFINE VAR __DS0FilterTable = TREATAS({\"Hospitalario\"}, 'Tipo Cama'[Ámbito]) VAR __DS0FilterTable2 = FILTER(KEEPFILTERS(VALUES('Sedes'[Ciudad])), NOT('Sedes'[Ciudad] IN {BLANK()})) VAR __DS0FilterTable3 = TREATAS({\"CUBA\", \"K16\", \"MEGACENTRO\", \"UNINORTE\"}, 'Sedes'[Sede]) VAR __DM3FilterTable = TREATAS({\"ARMENIA\", \"MANIZALES\", \"PEREIRA\", BLANK()}, 'Sedes'[Ciudad]) VAR __DS0Core = SUMMARIZECOLUMNS(ROLLUPADDISSUBTOTAL('Sedes'[Ciudad], \"IsGrandTotalRowTotal\", 'Sedes'[Sede], \"IsDM1Total\", NONVISUAL(__DM3FilterTable), 'Tipo Cama'[Tipo], \"IsDM3Total\", NONVISUAL(__DM3FilterTable)), __DS0FilterTable, __DS0FilterTable2, __DS0FilterTable3, \"v__Ocupación\", 'Medidas'[% Ocupación], \"Cant_Pacientes\", 'Medidas'[Cant Pacientes], \"Cant_Camas\", 'Medidas'[Cant Camas], \"Prom_Días_Estan\", 'Medidas'[Prom Días Estan], \"SumVlrCuenta\", CALCULATE(SUM('SuperCenso'[VlrCuenta]))) VAR __DS0CoreTableByDM1 = SELECTCOLUMNS(KEEPFILTERS(FILTER(KEEPFILTERS(__DS0Core), AND([IsDM1Total] = TRUE, [IsDM3Total] = TRUE))), \"IsGrandTotalRowTotal\", [IsGrandTotalRowTotal], \"'Sedes'[Ciudad]\", 'Sedes'[Ciudad], \"SortBy_DM1_0\", [v__Ocupación]) VAR __DS0CoreTableByDM3 = SELECTCOLUMNS(KEEPFILTERS(FILTER(KEEPFILTERS(__DS0Core), [IsDM3Total] = TRUE)), \"IsGrandTotalRowTotal\", [IsGrandTotalRowTotal], \"'Sedes'[Ciudad]\", 'Sedes'[Ciudad], \"IsDM1Total\", [IsDM1Total], \"'Sedes'[Sede]\", 'Sedes'[Sede], \"SortBy_DM3_0\", [v__Ocupación]) VAR __DS0PrimaryWithSortColumns = NATURALLEFTOUTERJOIN(NATURALLEFTOUTERJOIN(__DS0Core, __DS0CoreTableByDM1), __DS0CoreTableByDM3) VAR __DS0PrimaryWindowed = TOPN(502, __DS0PrimaryWithSortColumns, [IsGrandTotalRowTotal], 0, [SortBy_DM1_0], 0, 'Sedes'[Ciudad], 1, [IsDM1Total], 0, [SortBy_DM3_0], 0, 'Sedes'[Sede], 1, [IsDM3Total], 0, [v__Ocupación], 0, 'Tipo Cama'[Tipo], 1) EVALUATE __DS0PrimaryWindowed ORDER BY [IsGrandTotalRowTotal] DESC, [SortBy_DM1_0] DESC, 'Sedes'[Ciudad], [IsDM1Total] DESC, [SortBy_DM3_0] DESC, 'Sedes'[Sede], [IsDM3Total] DESC, [v__Ocupación] DESC, 'Tipo Cama'[Tipo]"
+                    },
+                    {
+                        "query_id": "Grafica2",
+                        "description": "Tipo estancia por camas, pacientes y ocupación",
+                        "dax": "DEFINE VAR __DS0FilterTable = TREATAS({\"Hospitalario\"}, 'Tipo Cama'[Ámbito]) VAR __DS0FilterTable2 = FILTER(KEEPFILTERS(VALUES('Sedes'[Ciudad])), NOT('Sedes'[Ciudad] IN {BLANK()})) VAR __DS0FilterTable3 = TREATAS({\"CUBA\", \"K16\", \"MEGACENTRO\", \"UNINORTE\"}, 'Sedes'[Sede]) VAR __DS0Core = SUMMARIZECOLUMNS(ROLLUPADDISSUBTOTAL('Tipo Cama'[Tipo], \"IsGrandTotalRowTotal\"), __DS0FilterTable, __DS0FilterTable2, __DS0FilterTable3, \"Cant_Camas\", 'Medidas'[Cant Camas], \"Cant_Pacientes\", 'Medidas'[Cant Pacientes], \"v__Ocupación\", 'Medidas'[% Ocupación], \"Prom_Días_Estan\", 'Medidas'[Prom Días Estan]) VAR __DS0PrimaryWindowed = TOPN(502, __DS0Core, [IsGrandTotalRowTotal], 0, 'Tipo Cama'[Tipo], 1) EVALUATE __DS0PrimaryWindowed ORDER BY [IsGrandTotalRowTotal] DESC, 'Tipo Cama'[Tipo]"
+                    },
+                    {
+                        "query_id": "Grafica3",
+                        "description": "Tipo contrato por paciente, porcentaje y valor",
+                        "dax": "DEFINE VAR __DS0FilterTable = TREATAS({\"Hospitalario\"}, 'Tipo Cama'[Ámbito]) VAR __DS0FilterTable2 = FILTER(KEEPFILTERS(VALUES('Sedes'[Ciudad])), NOT('Sedes'[Ciudad] IN {BLANK()})) VAR __DS0FilterTable3 = TREATAS({\"CUBA\", \"K16\", \"MEGACENTRO\", \"UNINORTE\"}, 'Sedes'[Sede]) VAR __DS0Core = SUMMARIZECOLUMNS(ROLLUPADDISSUBTOTAL('SuperCenso'[PGP], \"IsGrandTotalRowTotal\"), __DS0FilterTable, __DS0FilterTable2, __DS0FilterTable3, \"Cant_Pacientes\", 'Medidas'[Cant Pacientes], \"Porcentaje_Pacientes\", DIVIDE('Medidas'[Cant Pacientes], CALCULATE('Medidas'[Cant Pacientes], ALLSELECTED('SuperCenso'[PGP]))), \"SumVlrCuenta\", CALCULATE(SUM('SuperCenso'[VlrCuenta]))) VAR __DS0PrimaryWindowed = TOPN(502, __DS0Core, [IsGrandTotalRowTotal], 0, 'SuperCenso'[PGP], 1) EVALUATE __DS0PrimaryWindowed ORDER BY [IsGrandTotalRowTotal] DESC, 'SuperCenso'[PGP]"
+                    },
+                    {
+                        "query_id": "Camas_inhabilitadas",
+                        "description": "Camas inhabilitadas",
+                        "dax":"EVALUATE SUMMARIZECOLUMNS(EstadoCamas[Ciudad], \"Inhabilitadas\", CALCULATE(COUNT(EstadoCamas[Estado]), VALUE(EstadoCamas[Estado]) = 0))"
+                    }
+                ]
+            },
+            {
+                "page_id": "pacientes_entidad",
+                "display_name": "3 - Pacientes por Entidad",
+                "queries": [
+                    {
+                        "query_id": "valor_por_eps",
+                        "description": "Distribución de cuenta por pagar por aseguradora y modalidad",
+                        "dax": "DEFINE VAR __DS0FilterTable = TREATAS({\"Hospitalario\"}, 'Tipo Cama'[Ámbito]) VAR __DS0FilterTable2 = TREATAS({\"CUBA\", \"K16\", \"MEGACENTRO\", \"UNINORTE\"}, 'Sedes'[Sede]) VAR __DS0Core = SUMMARIZECOLUMNS(ROLLUPADDISSUBTOTAL('SuperCenso'[Entidad], \"IsGrandTotalRowTotal\", 'SuperCenso'[Regimen], \"IsDM1Total\"), __DS0FilterTable, __DS0FilterTable2, \"SumVlrCuenta\", CALCULATE(SUM('SuperCenso'[VlrCuenta])), \"Cant_Pacientes\", 'Medidas'[Cant Pacientes], \"Porcentaje_Pacientes\", DIVIDE('Medidas'[Cant Pacientes], CALCULATE('Medidas'[Cant Pacientes], ALLSELECTED('SuperCenso'[Entidad]), ALLSELECTED('SuperCenso'[Regimen])))) VAR __DS0CoreTableByDM1 = SELECTCOLUMNS(KEEPFILTERS(FILTER(KEEPFILTERS(__DS0Core), [IsDM1Total] = TRUE)), \"IsGrandTotalRowTotal\", [IsGrandTotalRowTotal], \"'SuperCenso'[Entidad]\", 'SuperCenso'[Entidad], \"SortBy_DM1_0\", [SumVlrCuenta]) VAR __DS0PrimaryWithSortColumns = NATURALLEFTOUTERJOIN(__DS0Core, __DS0CoreTableByDM1) VAR __DS0PrimaryWindowed = TOPN(502, __DS0PrimaryWithSortColumns, [IsGrandTotalRowTotal], 0, [SortBy_DM1_0], 0, 'SuperCenso'[Entidad], 1, [IsDM1Total], 0, [SumVlrCuenta], 0, 'SuperCenso'[Regimen], 1) EVALUATE __DS0PrimaryWindowed ORDER BY [IsGrandTotalRowTotal] DESC, [SortBy_DM1_0] DESC, 'SuperCenso'[Entidad], [IsDM1Total] DESC, [SumVlrCuenta] DESC, 'SuperCenso'[Regimen]"
+                    }
+                ]
+            }
+        ]
+    }
+}
