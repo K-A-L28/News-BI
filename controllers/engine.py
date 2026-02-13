@@ -80,9 +80,9 @@ class SystemEngine:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.scripts_cache = {}  # Cache de scripts cargados
-        self.user_scripts_dir = Path("user_scripts")
-        self.queries_dir = Path("queries")
-        self.templates_dir = Path("templates")
+        self.user_scripts_dir = Path("temp/user_scripts")
+        self.queries_dir = Path("temp/queries")
+        self.templates_dir = Path("temp/templates")
         self.images_dir = Path("images")
         
         # Asegurar que los directorios existan
@@ -309,10 +309,34 @@ class SystemEngine:
         finally:
             db.close()
 
+    def _get_test_mode_from_db(self) -> bool:
+        """
+        Verifica si el modo prueba está activado desde la configuración guardada en la base de datos.
+        
+        Returns:
+            bool: True si el modo prueba está activado, False en caso contrario
+        """
+        db = SessionLocal()
+        try:
+            # Buscar configuración del modo prueba
+            config = db.query(SystemConfig).filter(SystemConfig.config_key == 'is_test_mode').first()
+            
+            if config and config.config_value:
+                return config.config_value.lower() == 'true'
+            else:
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"❌ Error cargando modo prueba: {str(e)}")
+            return False
+        finally:
+            db.close()
+
     def get_auth_config(self, newsletter_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Obtiene la configuración de autenticación desde variables de entorno.
         Si hay newsletter_info, usa los correos de la lista asociada.
+        Si el modo prueba está activado, usa solo el correo de prueba.
         
         Args:
             newsletter_info: Información del newsletter con su lista de correos
@@ -327,17 +351,21 @@ class SystemEngine:
         # Cargar plantilla de correo si existe
         email_template = self._get_email_template_from_db(newsletter_info['newsletter'].name if newsletter_info and 'newsletter' in newsletter_info else None)
         
+        # Verificar si está en modo prueba
+        is_test_mode = self._get_test_mode_from_db()
+        
         # Usar correos de la lista si está disponible, sino los del .env
         destinatarios_cco = []
         if newsletter_info and newsletter_info.get('emails'):
             destinatarios_cco = newsletter_info['emails']
-            self.logger.info(f"📧 Usando {len(destinatarios_cco)} correos de la lista del newsletter: {destinatarios_cco[:3]}...")
         else:
             destinatarios_cco = DESTINATARIOS_CCO
-            self.logger.info(f"📧 Usando {len(destinatarios_cco)} correos del archivo .env: {destinatarios_cco[:3]}...")
         
-        # Debug adicional
-        # Eliminados logs de depuración
+        # Si está en modo prueba, override destinatarios
+        if is_test_mode:
+            test_email = "k.acevedo@clinicassanrafael.com"
+            destinatarios_cco = [test_email]
+            self.logger.info(f" MODO PRUEBA ACTIVADO - Enviando a: {test_email}")
         
         return {
             'tenant_id': TENANT_ID,
@@ -348,7 +376,8 @@ class SystemEngine:
             'email_template': email_template,
             'footer_text': footer_text,
             'gemini_api_key': GEMINI_API_KEY[0] if GEMINI_API_KEY else None,
-            'gemini_model': GEMINI_MODEL
+            'gemini_model': GEMINI_MODEL,
+            'is_test_mode': is_test_mode
         }
     
     def execute_bulletin(self, bulletin_name: str, config: Optional[Dict[str, Any]] = None, manual: bool = False) -> Dict[str, Any]:
@@ -364,9 +393,8 @@ class SystemEngine:
             Dict con resultado de la ejecución
         """
         try:
-            self.logger.info(f"🚀 Ejecutando boletín: {bulletin_name} ({'manual' if manual else 'programado'})")
-            
-            self.logger.info(f"🔍 Buscando boletín en BD: '{bulletin_name}'")
+            # Verificar si el modo prueba está activado
+            is_test_mode = self._get_test_mode_from_db()
             
             # Cargar y ejecutar el script desde la BD
             script_info = self._load_script_info(bulletin_name)
@@ -374,7 +402,7 @@ class SystemEngine:
                 return {
                     'success': False,
                     'error': f'Boletín no encontrado en la base de datos: {bulletin_name}',
-                    'execution_id': f"{'manual' if manual else 'auto'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    'execution_id': f"{'test_' if is_test_mode else ''}{'manual' if manual else 'auto'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                 }
             
             # Obtener el newsletter y su lista de correos
@@ -383,17 +411,15 @@ class SystemEngine:
                 return {
                     'success': False,
                     'error': f'Newsletter no encontrado: {bulletin_name}',
-                    'execution_id': f"{'manual' if manual else 'auto'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    'execution_id': f"{'test_' if is_test_mode else ''}{'manual' if manual else 'auto'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                 }
-            
-            # Debug: mostrar qué contiene newsletter_info
-            # Log eliminado para limpiar salida
             
             # Preparar configuración de ejecución
             execution_config = {
                 'bulletin_name': bulletin_name,
                 'manual': manual,
-                'execution_id': f"{'manual' if manual else 'auto'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                'execution_id': f"{'test_' if is_test_mode else ''}{'manual' if manual else 'auto'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                'is_test_mode': is_test_mode,
                 'paths': {
                     'user_scripts': str(self.user_scripts_dir),
                     'queries': str(self.queries_dir),
@@ -423,20 +449,27 @@ class SystemEngine:
             result.setdefault('success', False)
             result.setdefault('error', '')
             result['execution_id'] = execution_config['execution_id']
+            result['is_test_mode'] = is_test_mode
             
+            # Log simple del resultado
             if result['success']:
-                self.logger.info(f"✅ Boletín '{bulletin_name}' ejecutado exitosamente")
+                mode_text = "🧪 PRUEBA" if is_test_mode else "✅"
+                self.logger.info(f"{mode_text} '{bulletin_name}' ejecutado")
             else:
-                self.logger.error(f"❌ Error ejecutando boletín '{bulletin_name}': {result.get('error', 'Error desconocido')}")
+                self.logger.error(f"❌ Error en '{bulletin_name}': {result.get('error', 'Error desconocido')}")
             
             return result
             
         except Exception as e:
-            self.logger.error(f"❌ Error crítico en execute_bulletin: {str(e)}", exc_info=True)
+            error_msg = f'Error crítico: {str(e)}'
+            is_test_mode = self._get_test_mode_from_db()
+            self.logger.error(f"❌ {error_msg}", exc_info=True)
+            
             return {
                 'success': False,
-                'error': f'Error crítico: {str(e)}',
-                'execution_id': f"{'manual' if manual else 'auto'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                'error': error_msg,
+                'execution_id': f"{'test_' if is_test_mode else ''}{'manual' if manual else 'auto'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                'is_test_mode': is_test_mode
             }
     
     async def upload_bulletin(self, request: Request) -> Dict[str, Any]:
@@ -480,27 +513,6 @@ class SystemEngine:
                     'error': 'El script Python es requerido'
                 }
             
-            # Debug logging
-            self.logger.info(f"🔍 Debug - Form data keys: {list(form.keys())}")
-            self.logger.info(f"🔍 Debug - bulletin_name: {repr(bulletin_name)}")
-            self.logger.info(f"🔍 Debug - bulletin_name type: {type(bulletin_name)}")
-            self.logger.info(f"🔍 Debug - email_list_id: {repr(email_list_id)}")
-            self.logger.info(f"🔍 Debug - email_list_id type: {type(email_list_id)}")
-            
-            # Debug logging para archivos
-            self.logger.info(f"🔍 Debug - script_file: {script_file}")
-            self.logger.info(f"🔍 Debug - script_file type: {type(script_file)}")
-            self.logger.info(f"🔍 Debug - query_files: {query_files}")
-            self.logger.info(f"🔍 Debug - query_files type: {type(query_files)}")
-            self.logger.info(f"🔍 Debug - template_file: {template_file}")
-            self.logger.info(f"🔍 Debug - email_template_file: {email_template_file}")
-            self.logger.info(f"🔍 Debug - image_files: {image_files}")
-            
-            # Debug adicional para email_list_id
-            self.logger.info(f"🔍 Debug CRÍTICO - email_list_id antes de crear newsletter: {repr(email_list_id)}")
-            self.logger.info(f"🔍 Debug CRÍTICO - email_list_id está vacío?: {not email_list_id or email_list_id.strip() == ''}")
-            self.logger.info(f"🔍 Debug CRÍTICO - Hay plantilla de correo?: {email_template_file is not None}")
-            
             self.logger.info(f"📤 Procesando carga de boletín: {bulletin_name}")
             
             # Conectar a la base de datos
@@ -542,9 +554,6 @@ class SystemEngine:
                 db.add(new_newsletter)
                 db.commit()
                 db.refresh(new_newsletter)
-                
-                # Debug: verificar que el newsletter se creó correctamente
-            # Logs eliminados para limpiar salida
                 
                 # Guardar archivos
                 files_loaded = {

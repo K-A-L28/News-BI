@@ -123,17 +123,6 @@ async def get_stats():
         today_start_utc = today_start.astimezone(utc)
         today_end_utc = today_end.astimezone(utc)
         
-        logger.info(f"📊 Estadísticas - Hora local: {now_local}")
-        logger.info(f"📊 Estadísticas - Rango local: {today_start} a {today_end}")
-        logger.info(f"📊 Estadísticas - Rango UTC: {today_start_utc} a {today_end_utc}")
-        
-        # Verificar algunos registros recientes para depuración
-        recent_logs = db.query(ExecutionLog).order_by(ExecutionLog.started_at.desc()).limit(5).all()
-        logger.info(f"📊 Últimos 5 registros:")
-        for log in recent_logs:
-            local_time = utc_to_local(log.started_at) if log.started_at else None
-            logger.info(f"  - ID: {log.log_id[:8]}..., UTC: {log.started_at}, Local: {local_time}, Status: {log.status}")
-        
         # Envíos de hoy (filtrar por rango del día actual, solo con schedule y newsletter asociados)
         envios_hoy = db.query(ExecutionLog).filter(
             ExecutionLog.started_at >= today_start_utc,
@@ -164,8 +153,6 @@ async def get_stats():
         tareas_activas = db.query(Schedule).filter(
             Schedule.is_enabled == True
         ).count()
-        
-        logger.info(f"📊 Estadísticas - Envíos hoy: {envios_hoy}, Fallidos hoy: {fallidos_hoy}")
         
         return StatsResponse(
             enviosHoy=envios_hoy,
@@ -295,11 +282,9 @@ async def delete_schedule(schedule_id: str):
             
             # Eliminar el newsletter
             db.delete(newsletter)
-            logger.info(f"Newsletter '{newsletter.name}' eliminado junto con sus tareas programadas")
         else:
             # Si no hay newsletter, eliminar solo el schedule
             db.delete(schedule)
-            logger.info(f"Schedule '{schedule_id}' eliminado (no se encontró newsletter asociado)")
         
         db.commit()
         
@@ -320,8 +305,6 @@ async def delete_schedule(schedule_id: str):
 async def execute_report(request: ExecuteRequest):
     """API para ejecutar un reporte manualmente"""
     try:
-        logger.info(f"🚀 Ejecutando reporte manual: {request.boletin}")
-        
         # Usar el engine del sistema
         result = system_engine.execute_bulletin(request.boletin, manual=True)
         
@@ -440,13 +423,6 @@ async def update_schedule(schedule_id: str, request: Request):
         email_template_file = form_data.get('email_template')
         email_csv_file = form_data.get('email_csv')
         
-        # Debug: log received files
-        logger.info(f"Files received - email_template: {email_template_file is not None}, email_csv: {email_csv_file is not None}")
-        if email_template_file:
-            logger.info(f"Email template filename: {email_template_file.filename}")
-        if email_csv_file:
-            logger.info(f"Email CSV filename: {email_csv_file.filename}")
-        
         # Validate required fields
         if not newsletter_id or not send_time:
             raise HTTPException(status_code=400, detail="newsletter_id y send_time son requeridos")
@@ -475,11 +451,8 @@ async def update_schedule(schedule_id: str, request: Request):
         # Handle email template upload
         if email_template_file and email_template_file.filename:
             try:
-                logger.info(f"🔍 Procesando plantilla de correo: {email_template_file.filename}")
                 template_content = await email_template_file.read()
-                logger.info(f"🔍 Tamaño del archivo: {len(template_content)} bytes")
                 template_content = template_content.decode('utf-8')
-                logger.info(f"🔍 Contenido decodificado, primeros 100 chars: {template_content[:100]}")
                 
                 # Update newsletter's HTML template
                 newsletter = db.query(Newsletter).filter(Newsletter.newsletter_id == newsletter_id).first()
@@ -487,18 +460,12 @@ async def update_schedule(schedule_id: str, request: Request):
                     old_template = newsletter.html_template
                     newsletter.html_template = template_content
                     newsletter.updated_at = datetime.utcnow()
-                    
-                    logger.info(f"✅ Plantilla de correo actualizada para newsletter {newsletter_id}")
-                    logger.info(f"🔍 Longitud anterior: {len(old_template) if old_template else 0}, Nueva: {len(template_content)}")
                 else:
-                    logger.error(f"❌ Newsletter {newsletter_id} no encontrado")
                     raise HTTPException(status_code=404, detail="Newsletter no encontrado")
                     
             except Exception as e:
                 logger.error(f"Error procesando plantilla de correo: {str(e)}")
                 raise HTTPException(status_code=400, detail=f"Error procesando plantilla: {str(e)}")
-        else:
-            logger.info("🔍 No se proporcionó archivo de plantilla de correo")
         
         # Handle email CSV upload
         if email_csv_file and email_csv_file.filename:
@@ -521,18 +488,17 @@ async def update_schedule(schedule_id: str, request: Request):
                 if emails:
                     # Create new email list
                     import uuid
-                    new_list_id = str(uuid.uuid4())
-                    new_list_name = f"Lista actualizada {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-                    
-                    email_list = EmailList(
-                        list_id=new_list_id,
+                    admin_user = system_engine._get_or_create_admin_user(db)
+                    new_list_name = f"Lista {newsletter_id} - {datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    new_list = EmailList(
                         list_name=new_list_name,
-                        description=f"Lista actualizada desde edición de tarea {schedule_id}",
-                        email_count=len(emails),
-                        created_by="system_admin"
+                        description=f"Lista de correos importada para newsletter {newsletter_id}",
+                        created_by=admin_user.user_id
                     )
-                    db.add(email_list)
-                    db.flush()
+                    db.add(new_list)
+                    db.flush()  # Get the ID without committing
+                    
+                    new_list_id = new_list.list_id
                     
                     # Add email items
                     for email in emails:
@@ -544,12 +510,10 @@ async def update_schedule(schedule_id: str, request: Request):
                     
                     # Update newsletter to use new list
                     newsletter = db.query(Newsletter).filter(Newsletter.newsletter_id == newsletter_id).first()
-                    if newsletter:
+                    if email_list_id:
                         newsletter.email_list_id = new_list_id
                         newsletter.updated_at = datetime.utcnow()
                     
-                    logger.info(f"✅ Lista de correos creada y asignada: {new_list_name} con {len(emails)} correos")
-                
             except Exception as e:
                 logger.error(f"Error procesando CSV de correos: {str(e)}")
                 raise HTTPException(status_code=400, detail=f"Error procesando CSV: {str(e)}")
@@ -557,7 +521,6 @@ async def update_schedule(schedule_id: str, request: Request):
         db.commit()
         db.refresh(schedule)
         
-        logger.info(f"✅ Tarea {schedule_id} actualizada correctamente")
         return {
             'success': True,
             'message': 'Tarea actualizada exitosamente'
@@ -568,6 +531,81 @@ async def update_schedule(schedule_id: str, request: Request):
         logger.error(f"Error actualizando tarea: {str(e)}")
         db.rollback()
         raise HTTPException(status_code=500, detail="Error actualizando tarea")
+    finally:
+        db.close()
+
+@app.get("/api/test-mode")
+async def get_test_mode():
+    """API para obtener estado del modo prueba"""
+    db = SessionLocal()
+    try:
+        # Buscar configuración del modo prueba
+        config = db.query(SystemConfig).filter(SystemConfig.config_key == 'is_test_mode').first()
+        
+        if config and config.config_value:
+            is_test_mode = config.config_value.lower() == 'true'
+        else:
+            is_test_mode = False
+        
+        return {
+            'is_test_mode': is_test_mode,
+            'test_email': 'k.acevedo@clinicassanrafael.com'
+        }
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo modo prueba: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error obteniendo modo prueba")
+    finally:
+        db.close()
+
+@app.post("/api/test-mode")
+async def set_test_mode(request: Request):
+    """API para activar o desactivar el modo prueba"""
+    db = SessionLocal()
+    try:
+        # Obtener datos del request
+        data = await request.json()
+        is_test_mode = data.get('is_test_mode', False)
+        
+        # Obtener usuario admin
+        admin_user = system_engine._get_or_create_admin_user(db)
+        
+        # Buscar configuración existente
+        existing_config = db.query(SystemConfig).filter(SystemConfig.config_key == 'is_test_mode').first()
+        
+        if existing_config:
+            # Actualizar existente
+            existing_config.config_value = str(is_test_mode).lower()
+            existing_config.updated_at = datetime.utcnow()
+            existing_config.updated_by = admin_user.user_id
+        else:
+            # Crear nueva configuración
+            new_config = SystemConfig(
+                config_key='is_test_mode',
+                config_value=str(is_test_mode).lower(),
+                config_type='boolean',
+                description='Modo prueba para enviar correos solo a dirección de prueba'
+            )
+            db.add(new_config)
+        
+        db.commit()
+        
+        # Logger claro y visible del cambio de modo prueba
+        if is_test_mode:
+            logger.info("🧪 MODO PRUEBA ACTIVADO - Todos los correos se enviarán a: k.acevedo@clinicassanrafael.com")
+        else:
+            logger.info("✅ MODO PRUEBA DESACTIVADO - Los correos se enviarán a destinatarios reales")
+        
+        return {
+            'success': True,
+            'is_test_mode': is_test_mode,
+            'message': f"Modo prueba {'activado' if is_test_mode else 'desactivado'} exitosamente"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error guardando modo prueba: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error guardando modo prueba: {str(e)}")
     finally:
         db.close()
 
@@ -594,9 +632,8 @@ async def get_settings():
         default_values = {
             'emailRemitente': os.getenv('MAIL_SENDER', 'noreply@empresa.com'),
             'piePagina': '© 2026 Clínicas San Rafael. Todos los derechos reservados.',
-            'logsRetencion': 30,
-            'guardarBackups': True,
-            'logsDetallados': True
+            'limiteCorreos': 100,
+            'is_test_mode': False
         }
         
         # Combinar con valores por defecto
@@ -619,25 +656,21 @@ async def save_settings(request: Request):
     try:
         # Obtener datos del request
         data = await request.json()
-        logger.info(f"Datos recibidos en /api/settings: {data}")
         
         # Obtener usuario admin
         admin_user = system_engine._get_or_create_admin_user(db)
-        logger.info(f"Usuario admin obtenido: {admin_user.user_id}")
         
         # Configuraciones permitidas
         allowed_configs = {
             'emailRemitente': {'type': 'string', 'description': 'Email remitente de boletines'},
-            'piePagina': {'type': 'string', 'description': 'Pie de página de boletines'}
+            'piePagina': {'type': 'string', 'description': 'Pie de página de boletines'},
+            'limiteCorreos': {'type': 'number', 'description': 'Límite de correos por lista'}
         }
-        logger.info(f"Configuraciones permitidas: {allowed_configs}")
         
         # Guardar cada configuración
         for key, value in data.items():
-            logger.info(f"Procesando configuración: {key} = {value}")
             if key in allowed_configs:
                 config_info = allowed_configs[key]
-                logger.info(f"Configuración {key} es permitida, tipo: {config_info['type']}")
                 
                 # Convertir valor a string para guardar en BD
                 if config_info['type'] == 'boolean':
@@ -645,34 +678,28 @@ async def save_settings(request: Request):
                 else:
                     str_value = str(value)
                 
-                logger.info(f"Valor convertido a string: {str_value}")
-                
                 # Buscar configuración existente
                 existing_config = db.query(SystemConfig).filter(SystemConfig.config_key == key).first()
-                logger.info(f"Configuración existente encontrada: {existing_config}")
                 
                 if existing_config:
                     # Actualizar existente
-                    logger.info(f"Actualizando configuración existente: {key}")
                     existing_config.config_value = str_value
                     existing_config.updated_at = datetime.utcnow()
                     existing_config.updated_by = admin_user.user_id
                 else:
                     # Crear nueva
-                    logger.info(f"Creando nueva configuración: {key}")
                     new_config = SystemConfig(
                         config_key=key,
                         config_value=str_value,
                         config_type=config_info['type'],
-                        description=config_info['description']
+                        description=config_info['description'],
+                        created_by=admin_user.user_id
                     )
                     db.add(new_config)
             else:
                 logger.warning(f"Configuración no permitida: {key}")
         
-        logger.info("Intentando hacer commit de la transacción")
         db.commit()
-        logger.info("Commit exitoso")
         
         return {
             'success': True,
@@ -681,9 +708,7 @@ async def save_settings(request: Request):
         
     except Exception as e:
         logger.error(f"Error guardando configuración: {str(e)}", exc_info=True)
-        logger.error(f"Tipo de error: {type(e)}")
         db.rollback()
-        logger.error("Rollback realizado")
         raise HTTPException(status_code=500, detail=f"Error guardando configuración: {str(e)}")
     finally:
         db.close()

@@ -5,6 +5,7 @@
     --warning-color: #f59e0b;
     --error-color: #ef4444;
     --info-color: #3b82f6;
+    --test-color: #8b5cf6;
     --dark-bg: #1f2937;
     --light-bg: #f9fafb;
     --card-bg: #ffffff;
@@ -1016,6 +1017,50 @@ body {
 
 .loading {
     text-align: center;
-    color: var(--text-secondary);
     padding: 32px;
+    color: var(--text-secondary);
+}
+
+.test-mode-section {
+    box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+    padding: 16px;
+}
+
+/* Test Mode Indicator */
+.test-mode-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background: white;
+    color: var(--test-color);
+    border-radius: 50%;
+    font-size: 1.2rem;
+    margin-right: 16px;
+    animation: pulse 2s infinite;
+    box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.test-mode-indicator:hover {
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.5);
+}
+
+.test-mode-indicator i {
+    font-size: 1.2rem;
+}
+
+@keyframes pulse {
+    0% {
+        box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+    }
+    50% {
+        box-shadow: 0 2px 16px rgba(139, 92, 246, 0.6);
+    }
+    100% {
+        box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+    }
 }

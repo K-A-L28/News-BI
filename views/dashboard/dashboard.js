@@ -31,6 +31,7 @@ class Dashboard {
         this.updateTime();
         this.loadData();
         this.startAutoRefresh();
+        this.loadTestMode(); // Cargar estado del modo prueba
     }
 
     setupEventListeners() {
@@ -399,10 +400,28 @@ class Dashboard {
     // Action Methods
     showSettings() {
         this.showModal('Configuración General', `
+            <div class="form-group test-mode-section">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="test-mode-checkbox" onchange="dashboard.toggleTestMode()">
+                    <span class="checkmark"></span>
+                    Modo Prueba
+                </label>
+                <small class="form-text" style="color: var(--test-color); font-weight: 500;">
+                    <i class="fas fa-flask"></i> 
+                    Al activar el modo prueba, todos los correos se enviarán únicamente a: k.acevedo@clinicassanrafael.com
+                </small>
+            </div>
+            
             <div class="form-group">
                 <label>Remitente de Correos:</label>
                 <input type="email" id="email-remite" class="form-control" placeholder="noreply@empresa.com" value="">
                 <small class="form-text">Dirección de correo que aparecerá como remitente de todos los boletines</small>
+            </div>
+            
+            <div class="form-group">
+                <label>Limite por lista de correos:</label>
+                <input type="number" id="limite-correos" class="form-control" placeholder="100" min="1" value="">
+                <small class="form-text">Número máximo de correos que se enviarán por lista de correos</small>
             </div>
             
             <div class="form-group">
@@ -425,10 +444,12 @@ class Dashboard {
     
     async loadSettings() {
         try {
-            // Primero intentar cargar desde localStorage
-            const savedConfig = localStorage.getItem('dashboard_config');
-            if (savedConfig) {
-                const settings = JSON.parse(savedConfig);
+            // Cargar configuración desde el servidor
+            const response = await fetch('/api/settings');
+            
+            if (response.ok) {
+                const settings = await response.json();
+                console.log('Configuración cargada desde servidor:', settings);
                 
                 // Llenar el formulario con los valores existentes
                 if (settings.emailRemitente) {
@@ -437,38 +458,86 @@ class Dashboard {
                 if (settings.piePagina) {
                     document.getElementById('pie-pagina').value = settings.piePagina;
                 }
-                console.log('Configuración cargada desde localStorage:', settings);
-            } else {
-                console.log('No hay configuración guardada, usando valores por defecto');
-            }
-            
-            // Opcionalmente intentar cargar desde servidor (sin mostrar error si falla)
-            try {
-                const response = await fetch('/api/settings');
-                if (response.ok) {
-                    const serverSettings = await response.json();
-                    
-                    // Solo actualizar si no hay valores locales o si los del servidor son más recientes
-                    const savedConfig = localStorage.getItem('dashboard_config');
-                    if (!savedConfig || (serverSettings.updatedAt && new Date(serverSettings.updatedAt) > new Date(JSON.parse(savedConfig).updatedAt))) {
-                        
-                        // Llenar el formulario con los valores del servidor
-                        if (serverSettings.emailRemitente) {
-                            document.getElementById('email-remite').value = serverSettings.emailRemitente;
-                        }
-                        if (serverSettings.piePagina) {
-                            document.getElementById('pie-pagina').value = serverSettings.piePagina;
-                        }
-                        console.log('Configuración cargada desde servidor:', serverSettings);
-                    }
+                if (settings.limiteCorreos) {
+                    document.getElementById('limite-correos').value = settings.limiteCorreos;
                 }
-            } catch (serverError) {
-                console.log('No se pudo cargar configuración desde servidor, usando localStorage:', serverError);
+                if (settings.is_test_mode !== undefined) {
+                    document.getElementById('test-mode-checkbox').checked = settings.is_test_mode;
+                }
+            } else {
+                console.error('Error cargando configuración desde servidor');
+                this.showToast('Error cargando configuración desde servidor', 'error');
             }
             
         } catch (error) {
             console.error('Error cargando configuración:', error);
             this.showToast('Error cargando configuración', 'error');
+        }
+    }
+
+    async loadTestMode() {
+        try {
+            const response = await fetch('/api/test-mode');
+            
+            if (response.ok) {
+                const data = await response.json();
+                this.updateTestModeIndicator(data.is_test_mode);
+            } else {
+                console.error('Error cargando modo prueba');
+            }
+        } catch (error) {
+            console.error('Error cargando modo prueba:', error);
+        }
+    }
+
+    updateTestModeIndicator(isTestMode) {
+        const indicator = document.getElementById('test-mode-indicator');
+        if (isTestMode) {
+            indicator.style.display = 'flex';
+            console.log('🧪 Modo prueba activado - Indicador visible');
+        } else {
+            indicator.style.display = 'none';
+            console.log('📧 Modo producción - Indicador oculto');
+        }
+    }
+
+    async toggleTestMode() {
+        try {
+            const checkbox = document.getElementById('test-mode-checkbox');
+            const newTestMode = checkbox.checked;
+            
+            const response = await fetch('/api/test-mode', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    is_test_mode: newTestMode
+                })
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                this.updateTestModeIndicator(newTestMode);
+                this.showToast(result.message, 'success');
+                
+                if (newTestMode) {
+                    console.log('🧪 MODO PRUEBA ACTIVADO: Todos los correos se enviarán a k.acevedo@clinicassanrafael.com');
+                } else {
+                    console.log('📧 MODO PRODUCCIÓN ACTIVADO: Los correos se enviarán a las listas configuradas');
+                }
+            } else {
+                const error = await response.json();
+                this.showToast(error.detail || 'Error cambiando modo prueba', 'error');
+                // Revertir checkbox si hubo error
+                checkbox.checked = !newTestMode;
+            }
+        } catch (error) {
+            console.error('Error cambiando modo prueba:', error);
+            this.showToast('Error cambiando modo prueba', 'error');
+            // Revertir checkbox si hubo error
+            const checkbox = document.getElementById('test-mode-checkbox');
+            checkbox.checked = !checkbox.checked;
         }
     }
 
@@ -1250,11 +1319,12 @@ class Dashboard {
         document.body.removeChild(input);
     }
     
-    saveSettings() {
+    async saveSettings() {
         try {
             // Obtener valores del formulario
             const emailRemitente = document.getElementById('email-remite').value;
             const piePagina = document.getElementById('pie-pagina').value;
+            const limiteCorreos = document.getElementById('limite-correos').value;
             
             // Validar email si se proporciona
             if (emailRemitente && !this.validateEmail(emailRemitente)) {
@@ -1262,20 +1332,40 @@ class Dashboard {
                 return;
             }
             
-            // Guardar configuración en localStorage
+            // Validar límite de correos si se proporciona
+            if (limiteCorreos && (isNaN(limiteCorreos) || parseInt(limiteCorreos) < 1)) {
+                this.showToast('El límite de correos debe ser un número mayor a 0', 'error');
+                return;
+            }
+            
+            // Preparar configuración para enviar al servidor
             const config = {
                 emailRemitente: emailRemitente,
                 piePagina: piePagina,
-                updatedAt: new Date().toISOString()
+                limiteCorreos: parseInt(limiteCorreos) || null
             };
             
-            localStorage.setItem('dashboard_config', JSON.stringify(config));
+            // Enviar configuración al servidor
+            const response = await fetch('/api/settings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(config)
+            });
             
-            // Enviar configuración al servidor (opcional)
-            this.saveConfigToServer(config);
-            
-            this.closeModal();
-            this.showToast('Configuración guardada exitosamente', 'success');
+            if (response.ok) {
+                const result = await response.json();
+                if (result.success) {
+                    this.closeModal();
+                    this.showToast('Configuración guardada exitosamente', 'success');
+                } else {
+                    this.showToast(result.message || 'Error guardando configuración', 'error');
+                }
+            } else {
+                const error = await response.json();
+                this.showToast(error.detail || 'Error guardando configuración', 'error');
+            }
             
         } catch (error) {
             console.error('Error guardando configuración:', error);
@@ -1300,6 +1390,31 @@ class Dashboard {
             
         } catch (error) {
             // Silenciosamente ignorar errores de conexión al servidor
+        }
+    }
+    
+    async getConfiguration() {
+        try {
+            // Cargar configuración desde el servidor
+            const response = await fetch('/api/settings');
+            
+            if (response.ok) {
+                const settings = await response.json();
+                console.log('Configuración cargada desde servidor:', settings);
+                return settings;
+            } else {
+                console.error('Error cargando configuración desde servidor');
+                // Retornar configuración por defecto si hay error
+                return {
+                    limiteCorreos: 100 // Valor por defecto
+                };
+            }
+        } catch (error) {
+            console.error('Error cargando configuración:', error);
+            // Retornar configuración por defecto si hay error
+            return {
+                limiteCorreos: 100 // Valor por defecto
+            };
         }
     }
 
@@ -1530,6 +1645,7 @@ style.textContent = `
     
     .checkbox-label input[type="checkbox"] {
         margin: 0;
+        margin-right: 0.5rem;
     }
     
     .confirmation-message {
@@ -1656,6 +1772,33 @@ async function uploadEmailList() {
         if (emails.length === 0) {
             dashboard.showToast('No se encontraron correos válidos en el CSV', 'error');
             return;
+        }
+        
+        // Validar límite de correos
+        const config = await dashboard.getConfiguration();
+        console.log('Configuración actual:', config);
+        
+        if (config.limiteCorreos && config.limiteCorreos > 0) {
+            const limite = parseInt(config.limiteCorreos);
+            console.log(`Validando límite: ${emails.length} correos vs límite de ${limite}`);
+            
+            if (emails.length > limite) {
+                dashboard.showToast(
+                    `El archivo CSV contiene ${emails.length} correos, pero el límite establecido es de ${limite} correos por lista. Por favor reduzca el número de correos y vuelva a intentarlo.`, 
+                    'error'
+                );
+                return;
+            }
+            
+            // Mostrar advertencia si está cerca del límite
+            if (emails.length > limite * 0.9) {
+                dashboard.showToast(
+                    `Advertencia: La lista contiene ${emails.length} correos, está cerca del límite de ${limite}.`, 
+                    'warning'
+                );
+            }
+        } else {
+            console.log('No hay límite de correos configurado o es inválido');
         }
         
         // Crear la lista

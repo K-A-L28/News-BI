@@ -1,151 +1,273 @@
-# Ejemplo de Reporte Personalizado - Guía para Usuarios
+# Guía para Crear Boletines Personalizados - NewsPilot
 
-## 📋 Estructura de un Reporte
+## 📋 Estructura de un Boletín
 
-Cada reporte personalizado debe tener 3 componentes principales que se almacenan en la base de datos:
+Cada boletín personalizado debe tener 3 componentes principales que se almacenan en la base de datos:
 
-### 1. 📄 Lógica Python (`logic.py`)
-Contiene todo el código para procesar los datos y generar el resultado.
+### 1. 📄 Script Python (`script.py`)
+Contiene toda la lógica para obtener datos, procesarlos y generar el correo.
 
 ```python
 #!/usr/bin/env python3
 """
-Lógica del reporte de ejemplo - Mi Reporte Personalizado
+Script de Boletín - Mi Boletín Personalizado
+Desarrollado por: [Tu Nombre]
+Fecha: [Fecha de desarrollo]
 """
 
+import os
 import logging
-from controllers.query_executor import query_executor
+import requests
+import concurrent.futures
+from datetime import datetime
+from typing import Dict, List, Any, Tuple
+from dotenv import load_dotenv
 
+# Configuración de logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def procesar_reporte(report_context):
+# Cargar variables de entorno
+load_dotenv()
+
+# Configuración de autenticación (inyectada por el sistema)
+TENANT_ID = os.getenv("TENANT_ID")
+CLIENT_ID = os.getenv("CLIENT_ID") 
+CLIENT_SECRET = os.getenv("CLIENT_SECRET")
+
+# Configuración de Power Automate (definir tus URLs)
+PA_URL_PRINCIPAL = "https://default8e36c55d2d9f43179e94b407559453.28.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/TU_WORKFLOW_ID/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=TU_SIGNATURE"
+
+# URLs de reportes Power BI (opcional)
+REPORT_URL = os.getenv("REPORT_ID", "")
+REPORT_URL_2 = os.getenv("REPORT_ID_2", "")
+
+# Configuración de Gemini (opcional, para IA)
+GEMINI_API_KEY = [key.strip() for key in os.getenv('GEMINI_API_KEY', '').split(',') if key.strip()]
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-pro")
+
+# Función principal de ejecución (obligatoria)
+def ejecutar_automatizacion():
     """
-    Función principal que procesa el reporte.
-    
-    Args:
-        report_context (dict): Contexto proporcionado por el sistema
-            - report_name: Nombre del reporte
-            - config_data: Configuración general del sistema
-            - queries_config: Configuración de consultas DAX
-            - template_html: Plantilla HTML del correo
-            - timestamp: Fecha/hora de ejecución
+    Función principal que ejecuta todo el flujo del boletín.
+    Esta función es llamada automáticamente por el sistema NewsPilot.
     
     Returns:
-        dict: Datos procesados para el correo
+        dict: Diccionario con los datos para el correo y el resultado de la ejecución
     """
     try:
-        logger.info(f"🚀 Iniciando procesamiento del reporte: {report_context['report_name']}")
+        logger.info("🚀 Iniciando ejecución del boletín...")
         
-        # 1. Obtener URLs desde la configuración del sistema
-        config_data = report_context['config_data']
-        endpoint_url = config_data.get('URL_MI_REPORTE')
+        # 1. Obtener token de autenticación (si es necesario)
+        # token_graph = obtener_token_graph()
         
-        if not endpoint_url:
-            raise ValueError("No se encontró URL del endpoint en la configuración")
+        # 2. Ejecutar consultas a APIs externas en paralelo
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            future_datos_principales = executor.submit(obtener_datos_principales)
+            future_datos_secundarios = executor.submit(obtener_datos_secundarios)
+            
+            # Recolectar resultados
+            datos_principales = future_datos_principales.result()
+            datos_secundarios = future_datos_secundarios.result()
         
-        # 2. Ejecutar consultas DAX usando el ejecutor del sistema
-        queries_config = report_context['queries_config']
-        resultados = query_executor.execute_query_batch(queries_config, endpoint_url)
+        # 3. Procesar y analizar los datos
+        logger.info("📊 Procesando datos...")
+        metricas = procesar_metricas(datos_principales)
+        analisis = generar_analisis(datos_secundarios)
         
-        # 3. Procesar los datos según las necesidades del reporte
-        datos_procesados = {}
+        # 4. Generar contenido HTML
+        tabla_html = generar_tabla_html(metricas)
+        resumen_html = generar_resumen_html(analisis)
         
-        # Ejemplo: Procesar datos de ocupación
-        if 'ocupacion_data' in resultados:
-            ocupacion = procesar_datos_ocupacion(resultados['ocupacion_data']['data'])
-            datos_procesados.update(ocupacion)
+        # 5. Preparar datos para la plantilla
+        datos_boletin = {
+            # Fechas
+            "FECHA": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "FECHA_EXPLICITA": datetime.now().strftime("%d de %B de %Y"),
+            "MES": datetime.now().strftime("%B").capitalize(),
+            
+            # URLs de reportes
+            "POWERBI_REPORT_URL": REPORT_URL.replace('&', '&amp;') if REPORT_URL else "",
+            "POWERBI_REPORT_URL_2": REPORT_URL_2.replace('&', '&amp;') if REPORT_URL_2 else "",
+            
+            # Datos procesados
+            "TABLA_RESULTADOS": tabla_html,
+            "RESUMEN_ANALISIS": resumen_html,
+            "TOTAL_REGISTROS": len(metricas.get('datos', [])),
+            
+            # Métricas clave
+            "PROMEDIO_GENERAL": metricas.get('promedio', 0),
+            "VALOR_MAXIMO": metricas.get('maximo', 0),
+            "VALOR_MINIMO": metricas.get('minimo', 0),
+            
+            # Alertas (bloques HTML completos)
+            "BLOQUE_ALERTAS": generar_alertas_html(metricas),
+        }
         
-        # Ejemplo: Procesar datos de facturación
-        if 'facturacion_data' in resultados:
-            facturacion = procesar_datos_facturacion(resultados['facturacion_data']['data'])
-            datos_procesados.update(facturacion)
+        # 6. Enviar correo (el sistema se encarga de esto)
+        # enviar_correo(datos_boletin, token_graph)
         
-        # 4. Generar contenido HTML específico del reporte
-        tabla_html = generar_tabla_html(datos_procesados)
-        datos_procesados['TABLA_RESULTADOS'] = tabla_html
+        logger.info("✅ Boletín procesado exitosamente")
         
-        # 5. Agregar metadatos del reporte
-        datos_procesados.update({
-            'NOMBRE_REPORTE': report_context['report_name'],
-            'FECHA_GENERACION': report_context['timestamp'].strftime('%d/%m/%Y'),
-            'TOTAL_REGISTROS': len(datos_procesados.get('datos', []))
-        })
-        
-        logger.info(f"✅ Reporte procesado exitosamente")
-        return datos_procesados
+        # 7. Retornar resultado para el sistema
+        return {
+            'success': True,
+            'message': 'Boletín ejecutado exitosamente',
+            'data': datos_boletin,
+            'execution_id': f"boletin_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        }
         
     except Exception as e:
-        logger.error(f"❌ Error procesando reporte: {str(e)}", exc_info=True)
+        logger.error(f"❌ Error en la ejecución del boletín: {str(e)}", exc_info=True)
+        return {
+            'success': False,
+            'error': f'Error en la ejecución: {str(e)}',
+            'execution_id': f"error_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        }
+
+# Funciones auxiliares (ejemplos)
+def obtener_datos_principales():
+    """Obtiene datos principales desde tu API."""
+    try:
+        logger.info("🔍 Obteniendo datos principales...")
+        
+        # Ejemplo de llamada a API
+        response = requests.post(
+            PA_URL_PRINCIPAL,
+            headers={"Content-Type": "application/json"},
+            json={"dax_query": "TU_CONSULTA_DAX"},
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            logger.warning(f"⚠️ Error API: HTTP {response.status_code}")
+            return {}
+            
+    except Exception as e:
+        logger.error(f"❌ Error obteniendo datos principales: {str(e)}")
         return {}
 
-def procesar_datos_ocupacion(datos_crudos):
-    """Procesa los datos de ocupación según las reglas del negocio."""
-    # Aquí va la lógica específica para procesar ocupación
+def obtener_datos_secundarios():
+    """Obtiene datos secundarios desde otra fuente."""
+    # Similar a obtener_datos_principales pero para otros datos
+    return {}
+
+def procesar_metricas(datos):
+    """Procesa los datos y genera métricas."""
+    if not datos:
+        return {}
+    
+    # Ejemplo de procesamiento
+    valores = [item.get('valor', 0) for item in datos if isinstance(item, dict)]
+    
     return {
-        'PROMEDIO_OCUPACION': '85%',
-        'SEDE_MAYOR_OCUPACION': 'PEREIRA - MEGACENTRO (92%)',
-        'TOTAL_CAMAS': 450,
-        'CAMAS_OCUPADAS': 382
+        'promedio': sum(valores) / len(valores) if valores else 0,
+        'maximo': max(valores) if valores else 0,
+        'minimo': min(valores) if valores else 0,
+        'datos': datos
     }
 
-def procesar_datos_facturacion(datos_crudos):
-    """Procesa los datos de facturación según las reglas del negocio."""
-    # Aquí va la lógica específica para procesar facturación
-    return {
-        'TOTAL_FACTURADO': '$2,500,000',
-        'TOP_CLIENTE': 'SURA',
-        'FACTURACION_MES': '$1,800,000'
-    }
+def generar_analisis(datos):
+    """Genera análisis de los datos."""
+    # Aquí puedes usar Gemini para generar análisis automáticos
+    return {"analisis": "Análisis generado automáticamente"}
 
-def generar_tabla_html(datos):
+def generar_tabla_html(metricas):
     """Genera una tabla HTML con los resultados."""
-    return """
-    <table style="width: 100%; border-collapse: collapse;">
+    if not metricas.get('datos'):
+        return "<p>No hay datos disponibles</p>"
+    
+    filas = ""
+    for item in metricas['datos']:
+        filas += f"""
         <tr>
-            <th style="border: 1px solid #ddd; padding: 8px;">Métrica</th>
-            <th style="border: 1px solid #ddd; padding: 8px;">Valor</th>
+            <td style="padding: 8px; border: 1px solid #ddd;">{item.get('nombre', 'N/A')}</td>
+            <td style="padding: 8px; border: 1px solid #ddd;">{item.get('valor', 0)}</td>
+            <td style="padding: 8px; border: 1px solid #ddd;">{item.get('estado', 'N/A')}</td>
         </tr>
-        <tr>
-            <td style="border: 1px solid #ddd; padding: 8px;">Ocupación Promedio</td>
-            <td style="border: 1px solid #ddd; padding: 8px;">{PROMEDIO_OCUPACION}</td>
-        </tr>
-        <tr>
-            <td style="border: 1px solid #ddd; padding: 8px;">Total Facturado</td>
-            <td style="border: 1px solid #ddd; padding: 8px;">{TOTAL_FACTURADO}</td>
-        </tr>
+        """
+    
+    return f"""
+    <table style="width: 100%; border-collapse: collapse; margin: 10px 0;">
+        <thead>
+            <tr style="background-color: #f2f2f2;">
+                <th style="border: 1px solid #ddd; padding: 8px;">Nombre</th>
+                <th style="border: 1px solid #ddd; padding: 8px;">Valor</th>
+                <th style="border: 1px solid #ddd; padding: 8px;">Estado</th>
+            </tr>
+        </thead>
+        <tbody>
+            {filas}
+        </tbody>
     </table>
-    """.format(**datos)
+    """
+
+def generar_resumen_html(analisis):
+    """Genera HTML para el resumen ejecutivo."""
+    return f"""
+    <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0;">
+        <h3 style="color: #333; margin-top: 0;">📊 Resumen Ejecutivo</h3>
+        <p style="color: #666;">{analisis.get('analisis', 'No hay análisis disponible')}</p>
+    </div>
+    """
+
+def generar_alertas_html(metricas):
+    """Genera bloques HTML para alertas."""
+    alertas = []
+    
+    # Ejemplo de alerta
+    if metricas.get('promedio', 0) > 80:
+        alertas.append(f"""
+        <div style="background-color: #f8d7da; padding: 12px; border-radius: 5px; margin: 10px 0; border-left: 4px solid #dc3545;">
+            <strong>⚠️ Alerta:</strong> El valor promedio ({metricas['promedio']:.1f}%) supera el umbral crítico.
+        </div>
+        """)
+    
+    return "".join(alertas)
+
+# Funciones de autenticación (si son necesarias)
+def obtener_token():
+    """Obtiene token de autenticación."""
+    # Implementar lógica de autenticación si es necesaria
+    return "token_ejemplo"
+
+# Punto de entrada (obligatorio)
+if __name__ == "__main__":
+    resultado = ejecutar_automatizacion()
+    print(f"Resultado: {resultado}")
 ```
 
 ### 2. 📊 Consultas DAX (`queries.json`)
-Define todas las consultas necesarias para obtener datos de Power BI.
+Define las consultas necesarias para obtener datos de Power BI.
 
 ```json
 {
   "report_config": {
     "pages": [
       {
-        "display_name": "Ocupación",
+        "display_name": "Datos Principales",
         "queries": [
           {
-            "query_id": "ocupacion_data",
-            "description": "Datos de ocupación por sede",
+            "query_id": "ocupacion_diaria",
+            "description": "Ocupación hospitalaria diaria",
             "dax": "EVALUATE SUMMARIZE(COLUMNS('Sedes'[Ciudad], 'Sedes'[Sede], \"[Cant_Pacientes]\", SUM('Camas'[Pacientes]), \"[Cant_Camas]\", SUM('Camas'[Total])))"
           },
           {
-            "query_id": "camas_inhabilitadas",
-            "description": "Camas inhabilitadas por ciudad",
-            "dax": "EVALUATE SUMMARIZE(COLUMNS('EstadoCamas'[Ciudad], \"[Inhabilitadas]\", SUM('Camas'[Inhabilitadas])))"
+            "query_id": "metricas_kpi",
+            "description": "KPIs principales del día",
+            "dax": "EVALUATE SUMMARIZE(COLUMNS('KPI'[Nombre], \"[Valor]\", SUM('KPI'[Valor])))"
           }
         ]
       },
       {
-        "display_name": "Facturación",
+        "display_name": "Datos Secundarios",
         "queries": [
           {
-            "query_id": "facturacion_data",
-            "description": "Datos de facturación total",
-            "dax": "EVALUATE SUMMARIZE(COLUMNS('Entidad'[Entidad], \"[TotFact]\", SUM('Facturacion'[Total])))"
+            "query_id": "facturacion_diaria",
+            "description": "Facturación del día",
+            "dax": "EVALUATE SUMMARIZE(COLUMNS('Facturacion'[Concepto], \"[Total]\", SUM('Facturacion'[Valor])))"
           }
         ]
       }
@@ -162,40 +284,114 @@ Define la estructura del correo electrónico.
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Reporte {NOMBRE_REPORTE}</title>
+    <title>Boletín {FECHA}</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .header { background-color: #f0f0f0; padding: 20px; text-align: center; }
-        .content { margin: 20px 0; }
-        .footer { background-color: #f0f0f0; padding: 10px; text-align: center; font-size: 12px; }
-        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0; 
+            padding: 20px; 
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header { 
+            background-color: #2c3e50; 
+            color: white;
+            padding: 20px; 
+            text-align: center; 
+            border-radius: 8px 8px 0 0;
+        }
+        .content { 
+            margin: 20px 0; 
+            padding: 0 20px;
+        }
+        .footer { 
+            background-color: #ecf0f1; 
+            padding: 15px; 
+            text-align: center; 
+            font-size: 12px; 
+            border-radius: 0 0 8px 8px;
+        }
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin: 10px 0; 
+        }
+        th, td { 
+            border: 1px solid #ddd; 
+            padding: 12px; 
+            text-align: left; 
+        }
+        th { 
+            background-color: #3498db; 
+            color: white;
+        }
+        .metric-card {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border-left: 4px solid #3498db;
+        }
+        .alert {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            padding: 12px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>Reporte {NOMBRE_REPORTE}</h1>
-        <p>Fecha: {FECHA_GENERACION}</p>
-    </div>
-    
-    <div class="content">
-        <h2>📊 Resumen Ejecutivo</h2>
-        <p>Este reporte muestra los indicadores clave de gestión para el día de hoy.</p>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Boletín de Gestión</h1>
+            <p>Fecha: {FECHA_EXPLICITA}</p>
+        </div>
         
-        <h3>📈 Métricas Principales</h3>
-        {TABLA_RESULTADOS}
+        <div class="content">
+            <!-- Resumen Ejecutivo -->
+            {RESUMEN_ANALISIS}
+            
+            <!-- Métricas Principales -->
+            <h2>📈 Métricas Clave</h2>
+            <div class="metric-card">
+                <strong>Promedio General:</strong> {PROMEDIO_GENERAL}%
+            </div>
+            <div class="metric-card">
+                <strong>Valor Máximo:</strong> {VALOR_MAXIMO}
+            </div>
+            <div class="metric-card">
+                <strong>Valor Mínimo:</strong> {VALOR_MINIMO}
+            </div>
+            
+            <!-- Tabla de Resultados -->
+            <h2>📋 Detalle de Resultados</h2>
+            {TABLA_RESULTADOS}
+            
+            <!-- Alertas -->
+            {BLOQUE_ALERTAS}
+            
+            <!-- Enlaces a Reportes -->
+            <h2>🔗 Acceso a Reportes</h2>
+            <p>
+                <a href="{POWERBI_REPORT_URL}" style="color: #3498db; text-decoration: none;">📊 Reporte Principal</a>
+                {POWERBI_REPORT_URL_2 ? f'| <a href="{POWERBI_REPORT_URL_2}" style="color: #3498db; text-decoration: none;">📈 Reporte Secundario</a>' : ''}
+            </p>
+        </div>
         
-        <h3>🔗 Acceso a Reportes</h3>
-        <p>
-            <a href="{POWERBI_REPORT_URL}">Reporte Principal</a> | 
-            <a href="{POWERBI_REPORT_URL_2}">Reporte Secundario</a>
-        </p>
-    </div>
-    
-    <div class="footer">
-        <p>Este reporte fue generado automáticamente el {FECHA_GENERACION} a las {HORA_ACTUAL}</p>
-        <p>Para consultas, contacte al equipo de BI de San Rafael</p>
+        <div class="footer">
+            <p>Este boletín fue generado automáticamente el {FECHA}</p>
+            <p>Total de registros procesados: {TOTAL_REGISTROS}</p>
+            <hr style="margin: 10px 0; border: none; border-top: 1px solid #ddd;">
+            <p style="color: #666; font-size: 11px;">Sistema de Boletines - NewsPilot</p>
+        </div>
     </div>
 </body>
 </html>
@@ -203,74 +399,147 @@ Define la estructura del correo electrónico.
 
 ## 🗂️ Estructura en la Base de Datos
 
-Los archivos deben almacenarse en la base de datos con la siguiente estructura:
+Los archivos deben almacenarse en la base de datos usando el dashboard:
 
-```
-reports/
-├── mi_reporte_personalizado/
-│   ├── logic.py          # Lógica Python
-│   ├── queries.json     # Consultas DAX
-│   └── template.html    # Plantilla HTML
-├── otro_reporte/
-│   ├── logic.py
-│   ├── queries.json
-│   └── template.html
-└── ...
-```
+1. **Ve a "Cargar Boletín"** en el dashboard
+2. **Ingresa los 3 componentes**:
+   - **Nombre del Boletín**: `mi_boletin_personalizado`
+   - **Script Python**: Contenido del archivo `script.py`
+   - **Consultas DAX**: Contenido del archivo `queries.json`
+   - **Plantilla HTML**: Contenido del archivo `template.html`
+3. **Configura la programación**:
+   - **Hora de envío**: Por ejemplo `08:00`
+   - **Lista de correos**: Selecciona o crea una lista
+   - **Activa el boletín**: Marca como habilitado
 
-## ⚙️ Configuración del Sistema
+## ⚙️ Variables del Sistema Disponibles
 
-El archivo `system_config.json` debe especificar qué reporte ejecutar:
+El sistema inyecta automáticamente estas variables en tu script:
 
-```json
-{
-  "reporte_a_ejecutar": "mi_reporte_personalizado",
-  "URL_MI_REPORTE": "https://prod-03.eastus.logic.azure.com:443/workflows/...",
-  "REPORT_ID": "...",
-  "REPORT_ID_2": "..."
-}
-```
+### Variables de Entorno
+- `TENANT_ID`: ID del tenant de Azure
+- `CLIENT_ID`: ID del cliente de la aplicación
+- `CLIENT_SECRET`: Secreto del cliente
+- `GEMINI_API_KEY`: Claves API de Gemini (separadas por comas)
+- `GEMINI_MODEL`: Modelo de Gemini a usar
+- `REPORT_ID`: ID del reporte Power BI principal
+- `REPORT_ID_2`: ID del reporte Power BI secundario
+
+### Variables Inyectadas en Tiempo de Ejecución
+- `EMAIL_TEMPLATE_CONTENT`: Plantilla de correo personalizada (si existe)
+- `FOOTER_TEXT`: Pie de página configurado
+- `MAIL_SENDER`: Remitente de correos
+- `MAIL_BCC`: Destinatarios en BCC
 
 ## 🔄 Flujo de Ejecución
 
-1. **Engine** lee `system_config.json` para saber qué reporte ejecutar
-2. **ReportManager** carga la lógica, consultas y plantilla del reporte
-3. **QueryExecutor** ejecuta todas las consultas DAX en paralelo
-4. **Lógica del Usuario** procesa los datos según sus necesidades
-5. **Engine** reemplaza placeholders en la plantilla HTML
-6. **Engine** envía el correo con el resultado final
+1. **Scheduler** activa el boletín a la hora programada
+2. **Engine** carga el script, consultas y plantilla desde la BD
+3. **Script** ejecuta `ejecutar_automatizacion()` y retorna datos
+4. **Engine** combina datos con la plantilla HTML
+5. **Engine** envía el correo usando la configuración del sistema
 
-## 📝 Variables Disponibles en la Plantilla
+## 📝 Variables Disponibles en la Plantilla HTML
 
-La plantilla HTML puede usar las siguientes variables:
+La plantilla puede usar todas las variables retornadas por `ejecutar_automatizacion()`:
 
-- **Variables del Sistema**: `{POWERBI_REPORT_URL}`, `{POWERBI_REPORT_URL_2}`, `{FECHA_ACTUAL}`, `{HORA_ACTUAL}`
-- **Variables del Reporte**: Todas las que devuelve la función `procesar_reporte()`
-- **Variables Especiales**: `{AVATAR_SRC}` para el logo inline
+### Variables del Sistema
+- `{POWERBI_REPORT_URL}`: URL del reporte principal
+- `{POWERBI_REPORT_URL_2}`: URL del reporte secundario
+- `{FECHA}`: Fecha y hora actual
+- `{FECHA_EXPLICITA}`: Fecha en formato legible
+- `{MES}`: Nombre del mes actual
+- `{AVATAR_SRC}`: Logo inline (si existe)
+
+### Variables del Boletín
+- Todas las que incluyas en el diccionario `datos_boletin`
+- `{TOTAL_REGISTROS}`, `{PROMEDIO_GENERAL}`, etc.
 
 ## ✅ Buenas Prácticas
 
-1. **Manejo de Errores**: Siempre usar try-except en la lógica
-2. **Logging**: Usar `logger.info()` y `logger.error()` para seguimiento
-3. **Validación**: Validar que los datos existan antes de procesarlos
-4. **Performance**: Usar el `QueryExecutor` para consultas concurrentes
-5. **Seguridad**: No incluir información sensible en el código
-6. **Documentación**: Comentar las funciones principales
+### 1. **Estructura del Script**
+```python
+# Obligatorio: Función principal
+def ejecutar_automatizacion():
+    try:
+        # Tu lógica aquí
+        return {
+            'success': True,
+            'message': 'Boletín ejecutado exitosamente',
+            'data': datos_boletin
+        }
+    except Exception as e:
+        return {
+            'success': False,
+            'error': f'Error: {str(e)}'
+        }
+```
 
-## 🚀 Ejemplo Completo
+### 2. **Manejo de Errores**
+- Siempre usar try-except en la función principal
+- Loggear errores con `logger.error()`
+- Retornar estructura consistente
 
-Para crear un nuevo reporte:
+### 3. **Performance**
+- Usar `concurrent.futures` para llamadas API en paralelo
+- Implementar timeouts en las llamadas HTTP
+- Validar datos antes de procesarlos
 
-1. **Crear los 3 archivos** con la estructura mostrada
-2. **Subirlos a la base de datos** en `reports/mi_reporte/`
-3. **Actualizar `system_config.json`** con el nombre del reporte
-4. **Ejecutar** el sistema con `ejecutar_automatizacion()`
+### 4. **Seguridad**
+- No incluir credenciales en el código
+- Usar variables de entorno para configuración sensible
+- Validar datos de entrada
 
-El sistema se encargará automáticamente de:
-- Cargar la lógica dinámicamente
-- Ejecutar las consultas en paralelo
-- Procesar los datos
-- Generar el HTML
-- Enviar el correo
+### 5. **Logging**
+```python
+logger.info("🚀 Iniciando proceso...")
+logger.info("✅ Datos obtenidos correctamente")
+logger.warning("⚠️ Alerta: valor fuera de rango")
+logger.error("❌ Error procesando datos")
+```
 
-¡Así de simple! 🎉
+## 🚀 Ejemplo Completo - Paso a Paso
+
+### Paso 1: Crear el Script Python
+Crea `mi_boletin.py` con la estructura mostrada arriba.
+
+### Paso 2: Definir Consultas DAX
+Crea `queries.json` con tus consultas a Power BI.
+
+### Paso 3: Diseñar Plantilla HTML
+Crea `template.html` con el diseño del correo.
+
+### Paso 4: Cargar al Sistema
+1. Abre el dashboard de NewsPilot
+2. Ve a "Cargar Boletín"
+3. Ingresa nombre: `mi_boletin_diario`
+4. Pega el contenido de cada archivo en su campo correspondiente
+5. Configura hora de envío: `08:00`
+6. Selecciona lista de correos
+7. Activa el boletín
+
+### Paso 5: Probar
+1. Ve a "Envíos Recientes"
+2. Haz clic en "Ejecutar Ahora" para probar
+3. Revisa los logs y el correo recibido
+
+## 🎯 Modo Prueba
+
+Para probar sin enviar correos reales:
+
+1. **Activa el Modo Prueba** en Configuración
+2. **Todos los correos** se enviarán a: `k.acevedo@clinicassanrafael.com`
+3. **Los boletines** se marcarán como prueba en el sistema
+4. **Puedes probar** tantas veces como necesites
+
+## 📞 Soporte
+
+Si tienes problemas:
+
+1. **Revisa los logs** en la terminal
+2. **Verifica la sintaxis** de tu script Python
+3. **Valida el JSON** de las consultas
+4. **Prueba el HTML** en un navegador
+5. **Usa el Modo Prueba** antes de enviar a producción
+
+¡Listo! Con esta guía puedes crear boletines personalizados que se integren perfectamente con NewsPilot. 🎉
