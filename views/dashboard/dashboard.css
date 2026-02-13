@@ -457,6 +457,14 @@ body {
     color: white;
 }
 
+.action-btn.secondary.outline {
+    background: transparent;
+    color: var(--info-color);
+    width: auto;
+    height: 32px;
+    margin-bottom: 1.5rem;
+}
+
 .action-btn.tertiary {
     border-color: var(--text-secondary);
     background: var(--text-secondary);
@@ -542,6 +550,68 @@ body {
 
 .modal-body {
     padding: 1.5rem;
+}
+
+/* Modal específico para email lists */
+#email-list-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: none;
+    z-index: 1000;
+}
+
+#email-list-modal .modal-content {
+    background: var(--card-bg);
+    margin: 5% auto;
+    padding: 0;
+    border-radius: 0.75rem;
+    width: 90%;
+    max-width: 700px;
+    max-height: 85vh;
+    overflow-y: auto;
+    box-shadow: var(--shadow-lg);
+}
+
+#email-list-modal .modal-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+#email-list-modal .modal-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+#email-list-modal .close-btn {
+    background: none;
+    border: none;
+    font-size: 1.25rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 0.375rem;
+    transition: all 0.2s;
+}
+
+#email-list-modal .close-btn:hover {
+    background: var(--light-bg);
+    color: var(--text-primary);
+}
+
+#email-list-modal .modal-body {
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
 }
 
 /* Toast Notifications */
@@ -634,11 +704,25 @@ body {
     margin-bottom: 20px;
 }
 
+#email-list-modal .form-group {
+    margin-bottom: 1.5rem;
+}
+
+#email-list-modal .form-group:last-child {
+    margin-bottom: 0;
+}
+
 .form-group label {
     display: block;
     margin-bottom: 8px;
     font-weight: 500;
     color: var(--text-primary);
+}
+
+#email-list-modal .form-group label {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
 }
 
 .form-control {
@@ -648,6 +732,108 @@ body {
     border-radius: var(--border-radius);
     font-size: 0.9rem;
     transition: border-color 0.3s ease;
+}
+
+#email-list-modal .form-control,
+#email-list-modal input[type="text"],
+#email-list-modal input[type="file"],
+#email-list-modal textarea {
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid var(--border-color);
+    border-radius: 0.5rem;
+    font-size: 0.95rem;
+    transition: all 0.3s ease;
+    background: var(--card-bg);
+    box-sizing: border-box;
+}
+
+#email-list-modal input[type="file"] {
+    padding: 10px 16px;
+    cursor: pointer;
+}
+
+#email-list-modal textarea {
+    resize: vertical;
+    min-height: 80px;
+    font-family: inherit;
+}
+
+#email-list-modal .form-control:focus,
+#email-list-modal input:focus,
+#email-list-modal textarea:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+#email-list-modal .form-group small {
+    display: block;
+    margin-top: 0.5rem;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+
+#email-list-modal .form-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+#email-list-modal .lists-container {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    background: var(--card-bg);
+}
+
+#email-list-modal .email-list-item {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: background-color 0.2s ease;
+}
+
+#email-list-modal .email-list-item:last-child {
+    border-bottom: none;
+}
+
+#email-list-modal .email-list-item:hover {
+    background: var(--light-bg);
+}
+
+#email-list-modal .list-info {
+    flex: 1;
+}
+
+#email-list-modal .list-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+#email-list-modal .list-description {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    margin-bottom: 0.25rem;
+}
+
+#email-list-modal .list-count {
+    color: var(--info-color);
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+#email-list-modal .list-actions {
+    display: flex;
+    gap: 0.5rem;
 }
 
 .form-control:focus {
@@ -680,9 +866,156 @@ body {
         grid-template-columns: 1fr;
     }
     
+    #email-list-modal .modal-content {
+        width: 95%;
+        margin: 2% auto;
+        max-height: 90vh;
+    }
+    
+    #email-list-modal .modal-body {
+        padding: 1rem;
+        gap: 1rem;
+    }
+    
+    #email-list-modal .form-section {
+        padding: 1rem;
+    }
+    
+    #email-list-modal .form-actions {
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+    
+    #email-list-modal .email-list-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+    
+    #email-list-modal .list-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+    
     .table-header {
         flex-direction: column;
         gap: 1rem;
         align-items: flex-start;
     }
+}
+
+/* Estilos para Gestión de Listas de Correos */
+.lists-container {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--card-bg);
+}
+
+.list-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.2s;
+}
+
+.list-item:hover {
+    background-color: var(--light-bg);
+}
+
+.list-item:last-child {
+    border-bottom: none;
+}
+
+.list-info h4 {
+    margin: 0 0 8px 0;
+    color: var(--primary-color);
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.list-info p {
+    margin: 0 0 8px 0;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.list-meta {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.list-meta i {
+    margin-right: 4px;
+}
+
+.list-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-sm.secondary {
+    background: var(--info-color);
+    color: white;
+}
+
+.btn-sm.secondary:hover {
+    background: #2563eb;
+}
+
+.btn-sm.danger {
+    background: var(--error-color);
+    color: white;
+}
+
+.btn-sm.danger:hover {
+    background: #dc2626;
+}
+
+.form-section {
+    margin-bottom: 32px;
+}
+
+#email-list-modal .form-section {
+    background: var(--light-bg);
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--border-color);
+    margin-bottom: 0;
+}
+
+#email-list-modal .form-section h3 {
+    margin: 0 0 1.5rem 0;
+    color: var(--primary-color);
+    font-size: 1.125rem;
+    font-weight: 600;
+    border-bottom: 2px solid var(--primary-color);
+    padding-bottom: 0.5rem;
+}
+
+.no-data {
+    text-align: center;
+    color: var(--text-secondary);
+    font-style: italic;
+    padding: 32px;
+}
+
+.loading {
+    text-align: center;
+    color: var(--text-secondary);
+    padding: 32px;
 }

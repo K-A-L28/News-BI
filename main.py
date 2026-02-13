@@ -27,7 +27,7 @@ def start_api_server():
         time.sleep(2)
         
         if process.poll() is None:
-            print("✅ Servidor API iniciado correctamente en http://127.0.0.1:8000")
+            print("✅ Servidor API iniciado correctamente en http://localhost:8001")
             return process
         else:
             print("❌ Error al iniciar el servidor API")
@@ -93,8 +93,8 @@ def main():
     
     print("=" * 50)
     print("🎉 Sistema iniciado!")
-    print("📊 Dashboard: http://127.0.0.1:8000")
-    print("📝 API Docs: http://127.0.0.1:8000/docs")
+    print("📊 Dashboard: http://localhost:8001")
+    print("📝 API Docs: http://localhost:8001/docs")
     print("🛑 Presiona Ctrl+C para detener todo")
     print("=" * 50)
     

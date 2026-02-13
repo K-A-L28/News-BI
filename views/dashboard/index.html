@@ -33,6 +33,9 @@
 
         <!-- Main Content -->
         <main class="main-content">
+            <button class="action-btn secondary outline" onclick="showEmailListManager()">
+                <i class="fas fa-envelope"></i>Listas de Correos
+            </button>
             <!-- Stats Cards -->
             <section class="stats-section">
                 <div class="stats-grid">
@@ -200,11 +203,59 @@
         </div>
     </div>
 
+    <!-- Modal para Gestión de Listas de Correos -->
+    <div id="email-list-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-envelope"></i> Gestión de Listas de Correos</h2>
+                <button class="close-btn" onclick="closeEmailListModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-section">
+                    <h3>Crear Nueva Lista</h3>
+                    <div class="form-group">
+                        <label for="email-list-name">Nombre de la Lista:</label>
+                        <input type="text" id="email-list-name" placeholder="Ej: Clientes VIP" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="email-list-description">Descripción (Opcional):</label>
+                        <textarea id="email-list-description" placeholder="Ej: Lista de clientes suscritos al boletín"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="email-csv-file">Archivo CSV con Correos:</label>
+                        <input type="file" id="email-csv-file" accept=".csv" required>
+                        <small>Formato: CSV con una columna de correos electrónicos</small>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn-primary" onclick="uploadEmailList()">
+                            <i class="fas fa-upload"></i> Subir Lista
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="form-section">
+                    <h3>Listas Existentes</h3>
+                    <div id="email-lists-container" class="lists-container">
+                        <!-- Las listas se cargarán dinámicamente -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Hidden file inputs for multiple file uploads -->
     <input type="file" id="script-input" accept=".py" style="display: none;">
     <input type="file" id="query-input" accept=".json" style="display: none;" multiple>
     <input type="file" id="template-input" accept=".html,.htm" style="display: none;">
+    <input type="file" id="email-template-input" accept=".html,.htm" style="display: none;">
     <input type="file" id="images-input" accept="image/*" style="display: none;" multiple>
+    <input type="file" id="email-csv-input-hidden" accept=".csv" style="display: none;">
+    
+    <!-- Additional hidden inputs for edit modal -->
+    <input type="file" id="edit-email-template-input" accept=".html,.htm" style="display: none;">
+    <input type="file" id="edit-email-csv-input" accept=".csv" style="display: none;">
 
     <!-- Toast Notifications -->
     <div id="toast-container" class="toast-container"></div>

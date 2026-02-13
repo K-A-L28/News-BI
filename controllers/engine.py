@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Importaciones del sistema
-from models.database import SessionLocal, Schedule, Newsletter, ExecutionLog, FileAsset, User
+from models.database import SessionLocal, Schedule, Newsletter, ExecutionLog, FileAsset, User, SystemConfig, EmailList, EmailListItem
 from fastapi import Request, HTTPException
 
 # Configuración
@@ -153,19 +153,200 @@ class SystemEngine:
             self.logger.error(f"Error cargando script '{bulletin_name}': {str(e)}")
             return None
 
-    def get_auth_config(self) -> Dict[str, Any]:
+    def _load_newsletter_info(self, bulletin_name: str) -> Optional[Dict[str, Any]]:
+        """Carga información del newsletter y su lista de correos"""
+        try:
+            from models.database import SessionLocal, Newsletter, EmailList, EmailListItem
+            db = SessionLocal()
+            
+            try:
+                # Debug: mostrar todos los newsletters disponibles
+                all_newsletters = db.query(Newsletter).all()
+                self.logger.info(f"🔍 Debug: Todos los newsletters en BD: {[n.name for n in all_newsletters]}")
+                self.logger.info(f"🔍 Debug: Buscando newsletter con nombre: '{bulletin_name}'")
+                
+                # Buscar el newsletter
+                newsletter = db.query(Newsletter).filter(
+                    Newsletter.name == bulletin_name
+                ).first()
+                
+                if newsletter:
+                    self.logger.info(f"📋 Newsletter encontrado: {newsletter.name}")
+                    self.logger.info(f"🔍 Debug: newsletter.email_list_id: {newsletter.email_list_id}")
+                    
+                    # Obtener correos de la lista asociada
+                    emails = []
+                    if newsletter.email_list_id:
+                        self.logger.info(f"🔍 Debug: Buscando correos en lista_id: {newsletter.email_list_id}")
+                        email_items = db.query(EmailListItem).filter(
+                            EmailListItem.list_id == newsletter.email_list_id
+                        ).all()
+                        emails = [item.email_address for item in email_items]
+                        self.logger.info(f"📧 Correos encontrados en lista: {len(emails)}")
+                    else:
+                        self.logger.warning("⚠️ El newsletter no tiene email_list_id asignado")
+                    
+                    return {
+                        'newsletter': newsletter,
+                        'emails': emails
+                    }
+                else:
+                    self.logger.error(f"❌ No se encontró newsletter: {bulletin_name}")
+                    return None
+                    
+            finally:
+                db.close()
+                
+        except Exception as e:
+            self.logger.error(f"❌ Error cargando newsletter info: {str(e)}")
+            return None
+
+    def _get_email_template_from_db(self, bulletin_name: str) -> Optional[str]:
+        """
+        Carga la plantilla de correo desde la base de datos para un boletín específico.
+        Busca primero en Newsletter.html_template, luego en FileAsset.
+        
+        Args:
+            bulletin_name: Nombre del boletín
+            
+        Returns:
+            Optional[str]: Contenido de la plantilla de correo o None si no existe
+        """
+        if not bulletin_name:
+            return None
+        
+        db = SessionLocal()
+        try:
+            # Primero buscar en Newsletter.html_template (el campo actualizado por edición)
+            newsletter = db.query(Newsletter).filter(Newsletter.name == bulletin_name).first()
+            if newsletter and newsletter.html_template:
+                self.logger.info(f"📧 Plantilla de correo encontrada en Newsletter.html_template para '{bulletin_name}'")
+                return newsletter.html_template
+            
+            # Si no encuentra, buscar en FileAsset (sistema antiguo)
+            bulletin_prefix = bulletin_name.lower().replace(' ', '_')
+            
+            template_asset = db.query(FileAsset).filter(
+                FileAsset.file_type == 'email_template',
+                FileAsset.file_path.like(f"{bulletin_prefix}/email_template/%")
+            ).first()
+            
+            if template_asset and template_asset.file_content:
+                self.logger.info(f"📧 Plantilla de correo encontrada en FileAsset para '{bulletin_name}': {template_asset.file_name}")
+                return template_asset.file_content
+            else:
+                self.logger.info(f"📧 No hay plantilla de correo para '{bulletin_name}', usando plantilla por defecto")
+                return self._get_default_email_template()
+                
+        except Exception as e:
+            self.logger.error(f"❌ Error cargando plantilla de correo desde BD: {str(e)}")
+            return self._get_default_email_template()
+        finally:
+            db.close()
+
+    def _get_default_email_template(self) -> str:
+        """
+        Retorna una plantilla de correo por defecto.
+        
+        Returns:
+            str: None para no usar plantilla predeterminada
+        """
+        return None
+
+    def _get_footer_from_db(self) -> str:
+        """
+        Carga el pie de página desde la configuración guardada en la base de datos.
+        Si no hay configuración guardada, usa un valor por defecto
+        
+        Returns:
+            str: Texto del pie de página
+        """
+        db = SessionLocal()
+        try:
+            # Buscar configuración del pie de página
+            config = db.query(SystemConfig).filter(SystemConfig.config_key == 'piePagina').first()
+            
+            if config and config.config_value:
+                self.logger.info(f"📧 Usando pie de página desde configuración: {config.config_value}")
+                return config.config_value
+            else:
+                default_footer = "© 2026 Clínicas San Rafael. Todos los derechos reservados."
+                self.logger.info(f"📧 No hay configuración de pie de página, usando valor por defecto: {default_footer}")
+                return default_footer
+                
+        except Exception as e:
+            self.logger.error(f"❌ Error cargando pie de página desde BD: {str(e)}")
+            default_footer = "© 2026 Clínicas San Rafael. Todos los derechos reservados."
+            self.logger.info(f"📧 Usando pie de página por defecto: {default_footer}")
+            return default_footer
+        finally:
+            db.close()
+
+    def _get_mail_sender_from_db(self) -> str:
+        """
+        Carga el remitente de correos desde la configuración guardada en la base de datos.
+        Si no hay configuración guardada, usa el valor del .env
+        
+        Returns:
+            str: Email del remitente
+        """
+        db = SessionLocal()
+        try:
+            # Buscar configuración del remitente
+            config = db.query(SystemConfig).filter(SystemConfig.config_key == 'emailRemitente').first()
+            
+            if config and config.config_value:
+                self.logger.info(f"📧 Usando remitente desde configuración: {config.config_value}")
+                return config.config_value
+            else:
+                self.logger.info(f"📧 No hay configuración de remitente, usando valor del .env: {MAIL_SENDER}")
+                return MAIL_SENDER
+                
+        except Exception as e:
+            self.logger.error(f"❌ Error cargando remitente desde BD: {str(e)}")
+            self.logger.info(f"📧 Usando remitente del .env como fallback: {MAIL_SENDER}")
+            return MAIL_SENDER
+        finally:
+            db.close()
+
+    def get_auth_config(self, newsletter_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Obtiene la configuración de autenticación desde variables de entorno.
+        Si hay newsletter_info, usa los correos de la lista asociada.
         
+        Args:
+            newsletter_info: Información del newsletter con su lista de correos
+            
         Returns:
             Dict con configuración de autenticación y sistema
         """
+        # Cargar remitente y pie de página desde la configuración guardada en la base de datos
+        mail_sender = self._get_mail_sender_from_db()
+        footer_text = self._get_footer_from_db()
+        
+        # Cargar plantilla de correo si existe
+        email_template = self._get_email_template_from_db(newsletter_info['newsletter'].name if newsletter_info and 'newsletter' in newsletter_info else None)
+        
+        # Usar correos de la lista si está disponible, sino los del .env
+        destinatarios_cco = []
+        if newsletter_info and newsletter_info.get('emails'):
+            destinatarios_cco = newsletter_info['emails']
+            self.logger.info(f"📧 Usando {len(destinatarios_cco)} correos de la lista del newsletter: {destinatarios_cco[:3]}...")
+        else:
+            destinatarios_cco = DESTINATARIOS_CCO
+            self.logger.info(f"📧 Usando {len(destinatarios_cco)} correos del archivo .env: {destinatarios_cco[:3]}...")
+        
+        # Debug adicional
+        # Eliminados logs de depuración
+        
         return {
             'tenant_id': TENANT_ID,
             'client_id': CLIENT_ID,
             'client_secret': CLIENT_SECRET,
-            'mail_sender': MAIL_SENDER,
-            'destinatarios_cco': DESTINATARIOS_CCO,
+            'mail_sender': mail_sender,
+            'destinatarios_cco': destinatarios_cco,
+            'email_template': email_template,
+            'footer_text': footer_text,
             'gemini_api_key': GEMINI_API_KEY[0] if GEMINI_API_KEY else None,
             'gemini_model': GEMINI_MODEL
         }
@@ -196,6 +377,18 @@ class SystemEngine:
                     'execution_id': f"{'manual' if manual else 'auto'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                 }
             
+            # Obtener el newsletter y su lista de correos
+            newsletter_info = self._load_newsletter_info(bulletin_name)
+            if not newsletter_info:
+                return {
+                    'success': False,
+                    'error': f'Newsletter no encontrado: {bulletin_name}',
+                    'execution_id': f"{'manual' if manual else 'auto'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                }
+            
+            # Debug: mostrar qué contiene newsletter_info
+            # Log eliminado para limpiar salida
+            
             # Preparar configuración de ejecución
             execution_config = {
                 'bulletin_name': bulletin_name,
@@ -210,7 +403,10 @@ class SystemEngine:
             }
             
             # Agregar configuración de autenticación y sistema
-            execution_config.update(self.get_auth_config())
+            execution_config.update(self.get_auth_config(newsletter_info))
+            
+            # Debug: mostrar qué configuración se pasa al ConfigContext
+            # Log eliminado para limpiar salida
             
             # Ejecutar el script usando el wrapper (que extraerá archivos de la BD)
             result = script_info['instance'].execute(execution_config)
@@ -257,24 +453,39 @@ class SystemEngine:
             # Obtener datos del formulario
             form = await request.form()
             bulletin_name = form.get("bulletin_name")
-            
-            # Debug logging
-            self.logger.info(f"🔍 Debug - Form data keys: {list(form.keys())}")
-            self.logger.info(f"🔍 Debug - bulletin_name: {repr(bulletin_name)}")
-            self.logger.info(f"🔍 Debug - bulletin_name type: {type(bulletin_name)}")
+            email_list_id = form.get("email_list_id")
             
             if not bulletin_name or bulletin_name.strip() == "":
-                self.logger.error(f"❌ bulletin_name is empty or None: {repr(bulletin_name)}")
                 return {
                     'success': False,
                     'error': 'El nombre del boletín es requerido'
+                }
+            
+            if not email_list_id or email_list_id.strip() == "":
+                return {
+                    'success': False,
+                    'error': 'La lista de correos es requerida'
                 }
             
             # Obtener archivos
             script_file = form.get("script_file")
             query_files = form.getlist("query_files")
             template_file = form.get("template_file")
+            email_template_file = form.get("email_template_file")
             image_files = form.getlist("image_files")
+            
+            if not script_file:
+                return {
+                    'success': False,
+                    'error': 'El script Python es requerido'
+                }
+            
+            # Debug logging
+            self.logger.info(f"🔍 Debug - Form data keys: {list(form.keys())}")
+            self.logger.info(f"🔍 Debug - bulletin_name: {repr(bulletin_name)}")
+            self.logger.info(f"🔍 Debug - bulletin_name type: {type(bulletin_name)}")
+            self.logger.info(f"🔍 Debug - email_list_id: {repr(email_list_id)}")
+            self.logger.info(f"🔍 Debug - email_list_id type: {type(email_list_id)}")
             
             # Debug logging para archivos
             self.logger.info(f"🔍 Debug - script_file: {script_file}")
@@ -282,14 +493,13 @@ class SystemEngine:
             self.logger.info(f"🔍 Debug - query_files: {query_files}")
             self.logger.info(f"🔍 Debug - query_files type: {type(query_files)}")
             self.logger.info(f"🔍 Debug - template_file: {template_file}")
+            self.logger.info(f"🔍 Debug - email_template_file: {email_template_file}")
             self.logger.info(f"🔍 Debug - image_files: {image_files}")
             
-            if not script_file:
-                self.logger.error(f"❌ script_file is None or empty: {script_file}")
-                return {
-                    'success': False,
-                    'error': 'El script Python es requerido'
-                }
+            # Debug adicional para email_list_id
+            self.logger.info(f"🔍 Debug CRÍTICO - email_list_id antes de crear newsletter: {repr(email_list_id)}")
+            self.logger.info(f"🔍 Debug CRÍTICO - email_list_id está vacío?: {not email_list_id or email_list_id.strip() == ''}")
+            self.logger.info(f"🔍 Debug CRÍTICO - Hay plantilla de correo?: {email_template_file is not None}")
             
             self.logger.info(f"📤 Procesando carga de boletín: {bulletin_name}")
             
@@ -297,24 +507,51 @@ class SystemEngine:
             db = SessionLocal()
             
             try:
+                # Verificar si ya existe un newsletter con ese nombre
+                existing_newsletter = db.query(Newsletter).filter(
+                    Newsletter.name == bulletin_name.strip()
+                ).first()
+                
+                if existing_newsletter:
+                    self.logger.error(f"❌ Ya existe un newsletter con el nombre: '{bulletin_name}'")
+                    return {
+                        'success': False,
+                        'error': f'Ya existe un boletín con el nombre "{bulletin_name}". Por favor use un nombre diferente.'
+                    }
+                
                 # Obtener o crear usuario admin
                 admin_user = self._get_or_create_admin_user(db)
                 
+                # Verificar que el email_list_id exista
+                if email_list_id and email_list_id.strip():
+                    email_list = db.query(EmailList).filter(EmailList.list_id == email_list_id).first()
+                    if not email_list:
+                        self.logger.error(f"❌ No existe la lista de correos con ID: {email_list_id}")
+                        return {
+                            'success': False,
+                            'error': f'No existe una lista de correos con el ID "{email_list_id}". Por favor seleccione una lista válida.'
+                        }
+                
                 # Crear newsletter
                 new_newsletter = Newsletter(
-                    name=bulletin_name,
-                    subject_line=f"Boletín: {bulletin_name}",
+                    name=bulletin_name.strip(),
+                    subject_line=f"Boletín: {bulletin_name.strip()}",
+                    email_list_id=email_list_id if email_list_id and email_list_id.strip() else None,
                     created_by=admin_user.user_id
                 )
                 db.add(new_newsletter)
                 db.commit()
                 db.refresh(new_newsletter)
                 
+                # Debug: verificar que el newsletter se creó correctamente
+            # Logs eliminados para limpiar salida
+                
                 # Guardar archivos
                 files_loaded = {
                     'script': await self._save_script_file(db, script_file, bulletin_name, admin_user.user_id),
                     'queries': await self._save_query_files(db, query_files, bulletin_name, admin_user.user_id),
                     'template': await self._save_template_file(db, template_file, bulletin_name, admin_user.user_id),
+                    'email_template': await self._save_email_template_file(db, email_template_file, bulletin_name, admin_user.user_id),
                     'images': await self._save_image_files(db, image_files, bulletin_name, admin_user.user_id)
                 }
                 
@@ -425,6 +662,25 @@ class SystemEngine:
         db.add(template_asset)
         return 1
     
+    async def _save_email_template_file(self, db, email_template_file, bulletin_name, user_id):
+        """Guarda plantilla HTML del correo si existe"""
+        if not email_template_file:
+            return 0
+        
+        email_template_content = await email_template_file.read()
+        bulletin_prefix = bulletin_name.lower().replace(' ', '_')
+        
+        # Guardar en BD con path correcto incluyendo nombre del boletín
+        email_template_asset = FileAsset(
+            file_name=email_template_file.filename,
+            file_content=email_template_content.decode('utf-8'),
+            file_type='email_template',
+            file_path=f"{bulletin_prefix}/email_template/{email_template_file.filename}",
+            created_by=user_id
+        )
+        db.add(email_template_asset)
+        return 1
+    
     async def _save_image_files(self, db, image_files, bulletin_name, user_id):
         """Guarda archivos de imagen solo en BD (no en filesystem local)"""
         count = 0
@@ -445,8 +701,126 @@ class SystemEngine:
         return count
 
 
+class ConfigContext:
+    """Contexto para inyectar configuración de forma limpia"""
+    
+    def __init__(self, config: Dict[str, Any]):
+        self.config = config
+        self.original_get_settings = None
+        self.original_getenv = None
+        self.logger = logging.getLogger("ConfigContext")  # Agregar logger
+        
+    def __enter__(self):
+        """Inyectar configuración al entrar al contexto"""
+        import utils.config
+        import os
+        import sys
+        
+        # Debug: mostrar configuración recibida
+        self.logger.info(f"🔍 Debug ConfigContext - Configuración recibida: {list(self.config.keys())}")
+        self.logger.info(f"🔍 Debug ConfigContext - Tiene 'destinatarios_cco': {'destinatarios_cco' in self.config}")
+        self.logger.info(f"🔍 Debug ConfigContext - Tiene 'mail_sender': {'mail_sender' in self.config}")
+        
+        # ... (resto del código)
+        # Guardar funciones originales
+        self.original_get_settings = utils.config.get_settings
+        self.original_getenv = os.getenv
+        
+        # Procesar plantilla de correo y pie de página
+        email_template = self.config.get('email_template')
+        footer_text = self.config.get('footer_text')
+        
+        processed_template = None
+        if email_template and footer_text:
+            # Reemplazar el marcador {footer} en la plantilla
+            processed_template = email_template.replace('{footer}', footer_text)
+        elif email_template:
+            processed_template = email_template
+        
+        # Inyectar variables globales para que el script las pueda usar
+        if processed_template:
+            # Agregar al módulo builtins para que esté disponible globalmente
+            import builtins
+            builtins.EMAIL_TEMPLATE_CONTENT = processed_template
+            # También agregar como variable de entorno
+            os.environ['EMAIL_TEMPLATE_CONTENT'] = processed_template
+        
+        if footer_text:
+            import builtins
+            builtins.FOOTER_TEXT = footer_text
+            os.environ['FOOTER_TEXT'] = footer_text
+        
+        # Siempre inyectar las variables de entorno de remitente y destinatarios
+        # para que estén disponibles incluso cuando no hay plantilla de correo
+        if 'mail_sender' in self.config:
+            os.environ['MAIL_SENDER'] = self.config['mail_sender']
+            self.logger.info(f"📧 Inyectando MAIL_SENDER: {self.config['mail_sender']}")
+        else:
+            self.logger.warning("⚠️ No se encontró 'mail_sender' en la configuración del ConfigContext")
+        
+        if 'destinatarios_cco' in self.config:
+            os.environ['MAIL_BCC'] = ','.join(self.config['destinatarios_cco'])
+            self.logger.info(f"📧 Inyectando MAIL_BCC ({len(self.config['destinatarios_cco'])} correos): {self.config['destinatarios_cco'][:2]}...")
+        else:
+            self.logger.warning("⚠️ No se encontró 'destinatarios_cco' en la configuración del ConfigContext")
+        
+        # Inyectar funciones parchadas
+        def patched_get_settings():
+            base_config = self.original_get_settings()
+            if 'destinatarios_cco' in self.config:
+                base_config['MAIL_BCC'] = ','.join(self.config['destinatarios_cco'])
+                base_config['MAIL_SENDER'] = self.config.get('mail_sender', base_config.get('MAIL_SENDER', ''))
+            
+            # Agregar plantilla de correo procesada
+            if processed_template:
+                base_config['EMAIL_TEMPLATE'] = processed_template
+            
+            return base_config
+        
+        def patched_getenv(key, default=None):
+            if key == 'MAIL_BCC' and 'destinatarios_cco' in self.config:
+                return ','.join(self.config['destinatarios_cco'])
+            elif key == 'MAIL_SENDER' and 'mail_sender' in self.config:
+                return self.config['mail_sender']
+            elif key == 'EMAIL_TEMPLATE' and processed_template:
+                return processed_template
+            elif key == 'EMAIL_TEMPLATE_CONTENT' and processed_template:
+                return processed_template
+            elif key == 'FOOTER_TEXT' and footer_text:
+                return footer_text
+            else:
+                return self.original_getenv(key, default)
+        
+        utils.config.get_settings = patched_get_settings
+        os.getenv = patched_getenv
+        
+        return self
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Restaurar funciones originales al salir del contexto"""
+        import utils.config
+        import os
+        import builtins
+        
+        if self.original_get_settings:
+            utils.config.get_settings = self.original_get_settings
+        if self.original_getenv:
+            os.getenv = self.original_getenv
+        
+        # Limpiar variables globales
+        if hasattr(builtins, 'EMAIL_TEMPLATE_CONTENT'):
+            delattr(builtins, 'EMAIL_TEMPLATE_CONTENT')
+        if hasattr(builtins, 'FOOTER_TEXT'):
+            delattr(builtins, 'FOOTER_TEXT')
+        
+        # Limpiar variables de entorno
+        if 'EMAIL_TEMPLATE_CONTENT' in os.environ:
+            del os.environ['EMAIL_TEMPLATE_CONTENT']
+        if 'FOOTER_TEXT' in os.environ:
+            del os.environ['FOOTER_TEXT']
+
+
 class PythonScriptWrapper:
-    """Wrapper para ejecutar scripts extraídos de la base de datos"""
     
     def __init__(self, bulletin_name: str):
         self.bulletin_name = bulletin_name
@@ -693,85 +1067,88 @@ class PythonScriptWrapper:
             os.path.exists = smart_exists
             builtins.open = smart_open
             
-            try:
-                # Ejecutar el script con captura de errores detallada
-                self.logger.info("🔧 Cargando y ejecutando módulo desde directorio temporal...")
-                spec.loader.exec_module(module)
-                self.logger.info("🔧 Módulo ejecutado, verificando resultados...")
+            # Usar ConfigContext para inyectar configuración de forma limpia
+            with ConfigContext(config) as ctx:
+                self.logger.info("📧 ConfigContext activado para inyectar correos dinámicos")
                 
-                # Si el script tiene una función main, ejecutarla
-                if hasattr(module, 'main'):
-                    self.logger.info("🔧 Ejecutando función main() del script")
-                    result = module.main()
+                try:
+                    # Ejecutar el script con captura de errores detallada
+                    self.logger.info("🔧 Cargando y ejecutando módulo desde directorio temporal...")
+                    spec.loader.exec_module(module)
+                    self.logger.info("🔧 Módulo ejecutado, verificando resultados...")
+                    
+                    # Si el script tiene una función main, ejecutarla
+                    if hasattr(module, 'main'):
+                        self.logger.info("🔧 Ejecutando función main() del script")
+                        result = module.main()
+                        return {
+                            'success': True,
+                            'message': 'Script ejecutado exitosamente (main)',
+                            'result': result,
+                            'logs': log_capture.getvalue()
+                        }
+                    else:
+                        # Si no hay main, buscar funciones principales comunes y ejecutarlas
+                        self.logger.info("🔧 Script ejecutado al cargar módulo (sin main)")
+                        
+                        # Buscar funciones principales que el script podría tener
+                        main_functions = ['main', 'ejecutar', 'run', 'start', 'ejecutar_automatizacion', 'enviar_correo']
+                        executed = False
+                        
+                        for func_name in main_functions:
+                            if hasattr(module, func_name):
+                                func = getattr(module, func_name)
+                                if callable(func):
+                                    self.logger.info(f"🔧 Ejecutando función {func_name}() del script")
+                                    try:
+                                        result = func()
+                                        executed = True
+                                        self.logger.info(f"✅ Función {func_name}() ejecutada correctamente")
+                                        break
+                                    except Exception as e:
+                                        self.logger.error(f"❌ Error ejecutando {func_name}(): {str(e)}")
+                                        success = False
+                                        error = str(e)
+                                        break
+                        
+                        if not executed:
+                            self.logger.warning("⚠️ No se encontró función principal para ejecutar")
+                        
+                        # Buscar variables globales que indiquen el resultado
+                        success = getattr(module, 'success', True)
+                        error = getattr(module, 'error', '')
+                        result = getattr(module, 'result', None)
+                        
+                        # Verificar si hay variables de error específicas
+                        if hasattr(module, 'exception'):
+                            error = str(getattr(module, 'exception'))
+                            success = False
+                            self.logger.error(f"❌ El script capturó una excepción: {error}")
+                        
+                        # Verificar si hay logs o mensajes del script
+                        if hasattr(module, 'logs'):
+                            self.logger.info(f"📝 Logs del script: {getattr(module, 'logs')}")
+                        
+                        self.logger.info(f"📊 Resultado del script: success={success}, error='{error}', result={result}")
+                        
+                        # Capturar logs adicionales que pueda haber generado el script
+                        all_logs = log_capture.getvalue()
+                        
+                        return {
+                            'success': success,
+                            'message': f'Script ejecutado exitosamente (módulo{f" - {func_name}()" if executed else ""})',
+                            'error': error,
+                            'result': result,
+                            'logs': all_logs
+                        }
+                        
+                except Exception as e:
+                    self.logger.error(f"❌ Error ejecutando script: {str(e)}", exc_info=True)
                     return {
-                        'success': True,
-                        'message': 'Script ejecutado exitosamente (main)',
-                        'result': result,
+                        'success': False,
+                        'error': str(e),
                         'logs': log_capture.getvalue()
                     }
-                else:
-                    # Si no hay main, buscar funciones principales comunes y ejecutarlas
-                    self.logger.info("🔧 Script ejecutado al cargar módulo (sin main)")
-                    
-                    # Buscar funciones principales que el script podría tener
-                    main_functions = ['main', 'ejecutar', 'run', 'start', 'ejecutar_automatizacion', 'enviar_correo']
-                    executed = False
-                    
-                    for func_name in main_functions:
-                        if hasattr(module, func_name):
-                            func = getattr(module, func_name)
-                            if callable(func):
-                                self.logger.info(f"🔧 Ejecutando función {func_name}() del script")
-                                try:
-                                    result = func()
-                                    executed = True
-                                    self.logger.info(f"✅ Función {func_name}() ejecutada correctamente")
-                                    break
-                                except Exception as e:
-                                    self.logger.error(f"❌ Error ejecutando {func_name}(): {str(e)}")
-                                    success = False
-                                    error = str(e)
-                                    break
-                    
-                    if not executed:
-                        self.logger.warning("⚠️ No se encontró función principal para ejecutar")
-                    
-                    # Buscar variables globales que indiquen el resultado
-                    success = getattr(module, 'success', True)
-                    error = getattr(module, 'error', '')
-                    result = getattr(module, 'result', None)
-                    
-                    # Verificar si hay variables de error específicas
-                    if hasattr(module, 'exception'):
-                        error = str(getattr(module, 'exception'))
-                        success = False
-                        self.logger.error(f"❌ El script capturó una excepción: {error}")
-                    
-                    # Verificar si hay logs o mensajes del script
-                    if hasattr(module, 'logs'):
-                        self.logger.info(f"📝 Logs del script: {getattr(module, 'logs')}")
-                    
-                    self.logger.info(f"📊 Resultado del script: success={success}, error='{error}', result={result}")
-                    
-                    # Capturar logs adicionales que pueda haber generado el script
-                    all_logs = log_capture.getvalue()
-                    
-                    return {
-                        'success': success,
-                        'message': f'Script ejecutado exitosamente (módulo{f" - {func_name}()" if executed else ""})',
-                        'error': error,
-                        'result': result,
-                        'logs': all_logs
-                    }
-                    
-            finally:
-                # Restaurar funciones originales
-                os.path.exists = original_exists
-                builtins.open = original_open
-                
-                # Restaurar sys.path
-                if str(self.temp_dir) in sys.path:
-                    sys.path.remove(str(self.temp_dir))
                 
         except Exception as e:
             self.logger.error(f"Error ejecutando script: {str(e)}", exc_info=True)
@@ -782,20 +1159,16 @@ class PythonScriptWrapper:
             }
         finally:
             # Restaurar los handlers originales del logger
-            try:
-                root_logger.handlers.clear()
-                for handler in original_handlers:
-                    root_logger.addHandler(handler)
-                    
-                # Restaurar niveles originales
-                for logger_name in loggers_to_capture:
-                    try:
-                        specific_logger = logging.getLogger(logger_name)
-                        specific_logger.removeHandler(log_handler)
-                    except:
-                        pass
-            except:
-                pass
+            root_logger.handlers = original_handlers
+            root_logger.setLevel(logging.getLogger().level)
+            
+            # Restaurar funciones originales
+            os.path.exists = original_exists
+            builtins.open = original_open
+            
+            # Restaurar sys.path
+            if str(self.temp_dir) in sys.path:
+                sys.path.remove(str(self.temp_dir))
             
             # Limpiar directorio temporal
             self._cleanup_temp_dir()

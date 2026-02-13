@@ -42,10 +42,14 @@ class Newsletter(Base):
     subject_line = Column(String)
     html_template = Column(Text)
     dax_queries = Column(JSON)
+    email_list_id = Column(ForeignKey("email_lists.list_id"), nullable=True)
     created_at = Column(DateTime, default=datetime.now)
     created_by = Column(ForeignKey("users.user_id"))
     updated_at = Column(DateTime, nullable=True, onupdate=datetime.now)
     updated_by = Column(ForeignKey("users.user_id"), nullable=True)
+    
+    # Relación con lista de correos
+    email_list = relationship("EmailList", backref="newsletters")
 
 class Recipient(Base):
     __tablename__ = "recipients"
@@ -122,6 +126,30 @@ class SystemConfig(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
     updated_by = Column(ForeignKey("users.user_id"), nullable=True)
+
+class EmailList(Base):
+    __tablename__ = "email_lists"
+    list_id = Column(String, primary_key=True, default=generate_uuid)
+    list_name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    email_count = Column(Integer, default=0)
+    created_by = Column(ForeignKey("users.user_id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+    
+    # Relación con correos individuales
+    emails = relationship("EmailListItem", back_populates="email_list", cascade="all, delete-orphan")
+
+class EmailListItem(Base):
+    __tablename__ = "email_list_items"
+    item_id = Column(String, primary_key=True, default=generate_uuid)
+    list_id = Column(String, ForeignKey("email_lists.list_id"), nullable=False)
+    email_address = Column(String, nullable=False)
+    name = Column(String, nullable=True)  # Nombre opcional del contacto
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relación con la lista padre
+    email_list = relationship("EmailList", back_populates="emails")
 
 # Función para crear la base de datos
 def init_db():

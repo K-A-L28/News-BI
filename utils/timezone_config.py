@@ -38,6 +38,10 @@ def get_utc_now():
     """Obtener hora actual UTC"""
     return datetime.now(timezone.utc)
 
+def get_local_datetime():
+    """Obtener datetime actual local"""
+    return datetime.now(LOCAL_TIMEZONE)
+
 def format_local_datetime(dt, format_str='%Y-%m-%d %H:%M:%S'):
     """Formatear datetime a hora local"""
     if dt is None:

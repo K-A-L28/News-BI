@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 # Importaciones del sistema
-from models.database import SessionLocal, Schedule, Newsletter, ExecutionLog, RecipientList, FileAsset, User, SystemConfig
+from models.database import SessionLocal, Schedule, Newsletter, ExecutionLog, RecipientList, FileAsset, User, SystemConfig, EmailList, EmailListItem
 from sqlalchemy import extract
 from controllers.engine import SystemEngine
 
@@ -60,6 +60,19 @@ class ScheduleUpdateRequest(BaseModel):
     is_enabled: bool
     timezone: str = "America/Bogota"
 
+class EmailListRequest(BaseModel):
+    list_name: str
+    description: Optional[str] = None
+    emails: List[str] = []
+
+class EmailListResponse(BaseModel):
+    list_id: str
+    list_name: str
+    description: Optional[str]
+    email_count: int
+    created_at: str
+    created_by: str
+
 # Inicializar el engine del sistema
 system_engine = SystemEngine()
 
@@ -68,22 +81,76 @@ async def serve_dashboard():
     """Servir el dashboard principal"""
     return FileResponse("views/dashboard/index.html")
 
+@app.get("/api/newsletters")
+async def get_newsletters():
+    """API para obtener todos los newsletters disponibles"""
+    db = SessionLocal()
+    try:
+        newsletters = db.query(Newsletter).all()
+        
+        result = []
+        for newsletter in newsletters:
+            result.append({
+                'id': newsletter.newsletter_id,
+                'name': newsletter.name,
+                'subject_line': newsletter.subject_line,
+                'email_list_id': newsletter.email_list_id,
+                'created_at': newsletter.created_at.isoformat() if newsletter.created_at else None,
+                'updated_at': newsletter.updated_at.isoformat() if newsletter.updated_at else None
+            })
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error obteniendo newsletters: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error obteniendo newsletters")
+    finally:
+        db.close()
+
 @app.get("/api/stats", response_model=StatsResponse)
 async def get_stats():
     """API para obtener estadísticas generales"""
     db = SessionLocal()
     try:
-        today = datetime.now().date()
+        # Obtener fecha actual en la zona horaria correcta
+        from utils.timezone_config import get_local_datetime, utc_to_local
+        now_local = get_local_datetime()
+        today_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = now_local.replace(hour=23, minute=59, second=59, microsecond=999999)
         
-        # Envíos de hoy
+        # Convertir a UTC para comparación con la base de datos
+        from datetime import timezone
+        utc = timezone.utc
+        today_start_utc = today_start.astimezone(utc)
+        today_end_utc = today_end.astimezone(utc)
+        
+        logger.info(f"📊 Estadísticas - Hora local: {now_local}")
+        logger.info(f"📊 Estadísticas - Rango local: {today_start} a {today_end}")
+        logger.info(f"📊 Estadísticas - Rango UTC: {today_start_utc} a {today_end_utc}")
+        
+        # Verificar algunos registros recientes para depuración
+        recent_logs = db.query(ExecutionLog).order_by(ExecutionLog.started_at.desc()).limit(5).all()
+        logger.info(f"📊 Últimos 5 registros:")
+        for log in recent_logs:
+            local_time = utc_to_local(log.started_at) if log.started_at else None
+            logger.info(f"  - ID: {log.log_id[:8]}..., UTC: {log.started_at}, Local: {local_time}, Status: {log.status}")
+        
+        # Envíos de hoy (filtrar por rango del día actual, solo con schedule y newsletter asociados)
         envios_hoy = db.query(ExecutionLog).filter(
-            ExecutionLog.started_at >= today
+            ExecutionLog.started_at >= today_start_utc,
+            ExecutionLog.started_at <= today_end_utc,
+            ExecutionLog.schedule_id.isnot(None)
+        ).join(Schedule, ExecutionLog.schedule_id == Schedule.schedule_id).join(
+            Newsletter, Schedule.newsletter_id == Newsletter.newsletter_id
         ).count()
         
-        # Fallidos de hoy
+        # Fallidos de hoy (filtrar por rango del día actual, solo con schedule y newsletter asociados)
         fallidos_hoy = db.query(ExecutionLog).filter(
-            ExecutionLog.started_at >= today,
-            ExecutionLog.status == 'FAILED'
+            ExecutionLog.started_at >= today_start_utc,
+            ExecutionLog.started_at <= today_end_utc,
+            ExecutionLog.status == 'FAILED',
+            ExecutionLog.schedule_id.isnot(None)
+        ).join(Schedule, ExecutionLog.schedule_id == Schedule.schedule_id).join(
+            Newsletter, Schedule.newsletter_id == Newsletter.newsletter_id
         ).count()
         
         # Próximos envíos hoy
@@ -98,6 +165,8 @@ async def get_stats():
             Schedule.is_enabled == True
         ).count()
         
+        logger.info(f"📊 Estadísticas - Envíos hoy: {envios_hoy}, Fallidos hoy: {fallidos_hoy}")
+        
         return StatsResponse(
             enviosHoy=envios_hoy,
             fallidos=fallidos_hoy,
@@ -105,7 +174,6 @@ async def get_stats():
             tareasActivas=tareas_activas
         )
     except Exception as e:
-        logger.error(f"Error obteniendo estadísticas: {str(e)}")
         raise HTTPException(status_code=500, detail="Error obteniendo estadísticas")
     finally:
         db.close()
@@ -146,7 +214,6 @@ async def get_envios():
         
         return result
     except Exception as e:
-        logger.error(f"Error obteniendo envíos recientes: {str(e)}")
         raise HTTPException(status_code=500, detail="Error obteniendo envíos")
     finally:
         db.close()
@@ -211,19 +278,34 @@ async def toggle_schedule(schedule_id: str):
 
 @app.post("/api/delete-schedule/{schedule_id}")
 async def delete_schedule(schedule_id: str):
-    """API para eliminar un schedule"""
+    """API para eliminar un schedule y su newsletter asociado"""
     db = SessionLocal()
     try:
         schedule = db.query(Schedule).filter(Schedule.schedule_id == schedule_id).first()
         if not schedule:
             raise HTTPException(status_code=404, detail="Schedule no encontrado")
         
-        db.delete(schedule)
+        # Buscar el newsletter asociado usando newsletter_id
+        newsletter = db.query(Newsletter).filter(Newsletter.newsletter_id == schedule.newsletter_id).first()
+        if newsletter:
+            # Eliminar otros schedules relacionados con este newsletter
+            other_schedules = db.query(Schedule).filter(Schedule.newsletter_id == newsletter.newsletter_id).all()
+            for other_schedule in other_schedules:
+                db.delete(other_schedule)
+            
+            # Eliminar el newsletter
+            db.delete(newsletter)
+            logger.info(f"Newsletter '{newsletter.name}' eliminado junto con sus tareas programadas")
+        else:
+            # Si no hay newsletter, eliminar solo el schedule
+            db.delete(schedule)
+            logger.info(f"Schedule '{schedule_id}' eliminado (no se encontró newsletter asociado)")
+        
         db.commit()
         
         return {
             "success": True,
-            "message": "Schedule eliminado exitosamente"
+            "message": "Boletín y sus tareas programadas eliminados exitosamente"
         }
         
     except HTTPException:
@@ -269,26 +351,19 @@ async def execute_report(request: ExecuteRequest):
 @app.post("/api/upload-bulletin")
 async def upload_bulletin(request: Request):
     """API para cargar un nuevo boletín con sus archivos"""
-    logger.info(f"🔍 API Server - Received request to /api/upload-bulletin")
-    logger.info(f"🔍 API Server - Request method: {request.method}")
-    logger.info(f"🔍 API Server - Request headers: {dict(request.headers)}")
-    
     try:
         # Usar el engine del sistema para procesar la carga
-        logger.info(f"🔍 API Server - Calling system_engine.upload_bulletin...")
         result = await system_engine.upload_bulletin(request)
-        logger.info(f"🔍 API Server - upload_bulletin completed: {result}")
         
         if result['success']:
             return result
         else:
-            logger.error(f"❌ API Server - Upload failed: {result.get('error')}")
-            raise HTTPException(status_code=400, detail=result.get('error', 'Error cargando boletín'))
+            raise HTTPException(status_code=400, detail=result.get('error', 'Error procesando la carga'))
             
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ API Server - Error procesando carga: {str(e)}", exc_info=True)
+        logger.error(f"Error en upload_bulletin: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error procesando la carga: {str(e)}")
 
 @app.get("/api/upload-bulletin")
@@ -306,15 +381,35 @@ async def get_schedule(schedule_id: str):
             raise HTTPException(status_code=404, detail="Tarea no encontrada")
         
         newsletters = db.query(Newsletter).all()
+        email_lists = db.query(EmailList).all()
+        
+        # Get current template info
+        current_template = None
+        if schedule.newsletter and schedule.newsletter.html_template:
+            current_template = "Plantilla HTML asignada"
+        
+        # Get current email list info
+        current_email_list = None
+        email_list_id = None
+        if schedule.newsletter and schedule.newsletter.email_list:
+            current_email_list = schedule.newsletter.email_list.list_name
+            email_list_id = schedule.newsletter.email_list_id
+        elif schedule.recipient_list:
+            current_email_list = schedule.recipient_list.list_name
+            email_list_id = schedule.list_id
         
         return {
             'id': schedule.schedule_id,
             'newsletter_id': schedule.newsletter_id,
             'newsletter_name': schedule.newsletter.name if schedule.newsletter else 'N/A',
+            'email_list_id': email_list_id,
             'send_time': schedule.send_time.strftime('%H:%M'),
             'is_enabled': schedule.is_enabled,
             'timezone': schedule.timezone,
-            'newsletters': [{'id': n.newsletter_id, 'name': n.name} for n in newsletters]
+            'current_template': current_template,
+            'current_email_list': current_email_list,
+            'newsletters': [{'id': n.newsletter_id, 'name': n.name} for n in newsletters],
+            'emailLists': [{'list_id': el.list_id, 'list_name': el.list_name, 'email_count': el.email_count} for el in email_lists]
         }
     except Exception as e:
         logger.error(f"Error obteniendo tarea: {str(e)}")
@@ -323,7 +418,7 @@ async def get_schedule(schedule_id: str):
         db.close()
 
 @app.put("/api/schedule/{schedule_id}")
-async def update_schedule(schedule_id: str, request: ScheduleUpdateRequest):
+async def update_schedule(schedule_id: str, request: Request):
     """API para actualizar una tarea programada"""
     db = SessionLocal()
     try:
@@ -331,17 +426,133 @@ async def update_schedule(schedule_id: str, request: ScheduleUpdateRequest):
         if not schedule:
             raise HTTPException(status_code=404, detail="Tarea no encontrada")
         
-        # Parsear hora
+        # Parse form data
+        form_data = await request.form()
+        
+        # Get basic fields
+        newsletter_id = form_data.get('newsletter_id')
+        email_list_id = form_data.get('email_list_id')
+        send_time = form_data.get('send_time')
+        timezone = form_data.get('timezone', 'America/Bogota')
+        is_enabled = form_data.get('is_enabled', 'false').lower() == 'true'
+        
+        # Get uploaded files
+        email_template_file = form_data.get('email_template')
+        email_csv_file = form_data.get('email_csv')
+        
+        # Debug: log received files
+        logger.info(f"Files received - email_template: {email_template_file is not None}, email_csv: {email_csv_file is not None}")
+        if email_template_file:
+            logger.info(f"Email template filename: {email_template_file.filename}")
+        if email_csv_file:
+            logger.info(f"Email CSV filename: {email_csv_file.filename}")
+        
+        # Validate required fields
+        if not newsletter_id or not send_time:
+            raise HTTPException(status_code=400, detail="newsletter_id y send_time son requeridos")
+        
+        # Parse hour
         try:
-            hour, minute = map(int, request.send_time.split(':'))
+            hour, minute = map(int, send_time.split(':'))
             schedule.send_time = time(hour, minute)
         except ValueError:
             raise HTTPException(status_code=400, detail="Formato de hora inválido. Use HH:MM")
         
-        schedule.newsletter_id = request.newsletter_id
-        schedule.is_enabled = request.is_enabled
-        schedule.timezone = request.timezone
+        # Update basic schedule fields
+        schedule.newsletter_id = newsletter_id
+        schedule.is_enabled = is_enabled
+        schedule.timezone = timezone
         schedule.updated_at = datetime.utcnow()
+        
+        # Update email list if provided
+        if email_list_id:
+            # Update newsletter's email list
+            newsletter = db.query(Newsletter).filter(Newsletter.newsletter_id == newsletter_id).first()
+            if newsletter:
+                newsletter.email_list_id = email_list_id
+                newsletter.updated_at = datetime.utcnow()
+        
+        # Handle email template upload
+        if email_template_file and email_template_file.filename:
+            try:
+                logger.info(f"🔍 Procesando plantilla de correo: {email_template_file.filename}")
+                template_content = await email_template_file.read()
+                logger.info(f"🔍 Tamaño del archivo: {len(template_content)} bytes")
+                template_content = template_content.decode('utf-8')
+                logger.info(f"🔍 Contenido decodificado, primeros 100 chars: {template_content[:100]}")
+                
+                # Update newsletter's HTML template
+                newsletter = db.query(Newsletter).filter(Newsletter.newsletter_id == newsletter_id).first()
+                if newsletter:
+                    old_template = newsletter.html_template
+                    newsletter.html_template = template_content
+                    newsletter.updated_at = datetime.utcnow()
+                    
+                    logger.info(f"✅ Plantilla de correo actualizada para newsletter {newsletter_id}")
+                    logger.info(f"🔍 Longitud anterior: {len(old_template) if old_template else 0}, Nueva: {len(template_content)}")
+                else:
+                    logger.error(f"❌ Newsletter {newsletter_id} no encontrado")
+                    raise HTTPException(status_code=404, detail="Newsletter no encontrado")
+                    
+            except Exception as e:
+                logger.error(f"Error procesando plantilla de correo: {str(e)}")
+                raise HTTPException(status_code=400, detail=f"Error procesando plantilla: {str(e)}")
+        else:
+            logger.info("🔍 No se proporcionó archivo de plantilla de correo")
+        
+        # Handle email CSV upload
+        if email_csv_file and email_csv_file.filename:
+            try:
+                csv_content = await email_csv_file.read()
+                csv_content = csv_content.decode('utf-8')
+                
+                # Parse CSV and create/update email list
+                import io
+                import csv
+                
+                emails = []
+                csv_reader = csv.reader(io.StringIO(csv_content))
+                for row in csv_reader:
+                    if row and len(row) > 0:
+                        email = row[0].strip()
+                        if email and '@' in email:
+                            emails.append(email)
+                
+                if emails:
+                    # Create new email list
+                    import uuid
+                    new_list_id = str(uuid.uuid4())
+                    new_list_name = f"Lista actualizada {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                    
+                    email_list = EmailList(
+                        list_id=new_list_id,
+                        list_name=new_list_name,
+                        description=f"Lista actualizada desde edición de tarea {schedule_id}",
+                        email_count=len(emails),
+                        created_by="system_admin"
+                    )
+                    db.add(email_list)
+                    db.flush()
+                    
+                    # Add email items
+                    for email in emails:
+                        email_item = EmailListItem(
+                            list_id=new_list_id,
+                            email_address=email
+                        )
+                        db.add(email_item)
+                    
+                    # Update newsletter to use new list
+                    newsletter = db.query(Newsletter).filter(Newsletter.newsletter_id == newsletter_id).first()
+                    if newsletter:
+                        newsletter.email_list_id = new_list_id
+                        newsletter.updated_at = datetime.utcnow()
+                    
+                    logger.info(f"✅ Lista de correos creada y asignada: {new_list_name} con {len(emails)} correos")
+                
+            except Exception as e:
+                logger.error(f"Error procesando CSV de correos: {str(e)}")
+                raise HTTPException(status_code=400, detail=f"Error procesando CSV: {str(e)}")
         
         db.commit()
         db.refresh(schedule)
@@ -408,23 +619,25 @@ async def save_settings(request: Request):
     try:
         # Obtener datos del request
         data = await request.json()
+        logger.info(f"Datos recibidos en /api/settings: {data}")
         
         # Obtener usuario admin
         admin_user = system_engine._get_or_create_admin_user(db)
+        logger.info(f"Usuario admin obtenido: {admin_user.user_id}")
         
         # Configuraciones permitidas
         allowed_configs = {
             'emailRemitente': {'type': 'string', 'description': 'Email remitente de boletines'},
-            'piePagina': {'type': 'string', 'description': 'Pie de página de boletines'},
-            'logsRetencion': {'type': 'number', 'description': 'Días de retención de logs'},
-            'guardarBackups': {'type': 'boolean', 'description': 'Guardar respaldos automáticos'},
-            'logsDetallados': {'type': 'boolean', 'description': 'Generar logs detallados'}
+            'piePagina': {'type': 'string', 'description': 'Pie de página de boletines'}
         }
+        logger.info(f"Configuraciones permitidas: {allowed_configs}")
         
         # Guardar cada configuración
         for key, value in data.items():
+            logger.info(f"Procesando configuración: {key} = {value}")
             if key in allowed_configs:
                 config_info = allowed_configs[key]
+                logger.info(f"Configuración {key} es permitida, tipo: {config_info['type']}")
                 
                 # Convertir valor a string para guardar en BD
                 if config_info['type'] == 'boolean':
@@ -432,26 +645,34 @@ async def save_settings(request: Request):
                 else:
                     str_value = str(value)
                 
+                logger.info(f"Valor convertido a string: {str_value}")
+                
                 # Buscar configuración existente
                 existing_config = db.query(SystemConfig).filter(SystemConfig.config_key == key).first()
+                logger.info(f"Configuración existente encontrada: {existing_config}")
                 
                 if existing_config:
                     # Actualizar existente
+                    logger.info(f"Actualizando configuración existente: {key}")
                     existing_config.config_value = str_value
                     existing_config.updated_at = datetime.utcnow()
                     existing_config.updated_by = admin_user.user_id
                 else:
                     # Crear nueva
+                    logger.info(f"Creando nueva configuración: {key}")
                     new_config = SystemConfig(
                         config_key=key,
                         config_value=str_value,
                         config_type=config_info['type'],
-                        description=config_info['description'],
-                        created_by=admin_user.user_id
+                        description=config_info['description']
                     )
                     db.add(new_config)
+            else:
+                logger.warning(f"Configuración no permitida: {key}")
         
+        logger.info("Intentando hacer commit de la transacción")
         db.commit()
+        logger.info("Commit exitoso")
         
         return {
             'success': True,
@@ -459,9 +680,11 @@ async def save_settings(request: Request):
         }
         
     except Exception as e:
-        logger.error(f"Error guardando configuración: {str(e)}")
+        logger.error(f"Error guardando configuración: {str(e)}", exc_info=True)
+        logger.error(f"Tipo de error: {type(e)}")
         db.rollback()
-        raise HTTPException(status_code=500, detail="Error guardando configuración")
+        logger.error("Rollback realizado")
+        raise HTTPException(status_code=500, detail=f"Error guardando configuración: {str(e)}")
     finally:
         db.close()
 
@@ -581,19 +804,100 @@ async def get_execution_status(log_id: str):
     finally:
         db.close()
 
+# Endpoints para gestión de listas de correos
+@app.post("/api/email-lists", response_model=dict)
+async def create_email_list(request: EmailListRequest):
+    """Crear una nueva lista de correos desde CSV"""
+    db = SessionLocal()
+    try:
+        # Crear la lista
+        email_list = EmailList(
+            list_name=request.list_name,
+            description=request.description,
+            email_count=len(request.emails),
+            created_by="system_admin"  # TODO: Obtener del usuario autenticado
+        )
+        db.add(email_list)
+        db.flush()  # Para obtener el ID
+        
+        # Guardar los correos individuales
+        for email in request.emails:
+            email_item = EmailListItem(
+                list_id=email_list.list_id,
+                email_address=email.strip()
+            )
+            db.add(email_item)
+        
+        db.commit()
+        
+        return {
+            'success': True,
+            'message': f"Lista '{request.list_name}' creada exitosamente con {len(request.emails)} correos",
+            'list_id': email_list.list_id
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creando lista de correos: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creando lista: {str(e)}")
+    finally:
+        db.close()
+
+@app.get("/api/email-lists", response_model=List[EmailListResponse])
+async def get_email_lists():
+    """Obtener todas las listas de correos"""
+    db = SessionLocal()
+    try:
+        lists = db.query(EmailList).all()
+        return [
+            EmailListResponse(
+                list_id=email_list.list_id,
+                list_name=email_list.list_name,
+                description=email_list.description,
+                email_count=email_list.email_count,
+                created_at=email_list.created_at.isoformat(),
+                created_by=email_list.created_by
+            )
+            for email_list in lists
+        ]
+    except Exception as e:
+        logger.error(f"Error obteniendo listas de correos: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error obteniendo listas: {str(e)}")
+    finally:
+        db.close()
+
+@app.delete("/api/email-lists/{list_id}")
+async def delete_email_list(list_id: str):
+    """Eliminar una lista de correos"""
+    db = SessionLocal()
+    try:
+        email_list = db.query(EmailList).filter(EmailList.list_id == list_id).first()
+        if not email_list:
+            raise HTTPException(status_code=404, detail="Lista no encontrada")
+        
+        db.delete(email_list)
+        db.commit()
+        
+        return {
+            'success': True,
+            'message': f"Lista '{email_list.list_name}' eliminada exitosamente"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error eliminando lista de correos: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error eliminando lista: {str(e)}")
+    finally:
+        db.close()
+
 def start_api_server():
     """Iniciar servidor API"""
-    # logger.info("🌐 Iniciando servidor API en http://127.0.0.1:8000")
-    # logger.info("📊 Dashboard disponible en: http://127.0.0.1:8000")
-    
-    # import uvicorn
-    # uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
-
-    logger.info("🌐 Iniciando servidor API en http://127.0.0.1:8001")
-    logger.info("📊 Dashboard disponible en: http://127.0.0.1:8001")
+    logger.info("🌐 Iniciando servidor API en http://localhost:8001")
+    logger.info("📊 Dashboard disponible en: http://localhost:8001")
     
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8001, log_level="info")
+    uvicorn.run(app, host="localhost", port=8001, log_level="info")
 
 if __name__ == "__main__":
     start_api_server()
