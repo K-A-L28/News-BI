@@ -132,6 +132,7 @@ class EmailList(Base):
     list_id = Column(String, primary_key=True, default=generate_uuid)
     list_name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
+    max_recipients = Column(Integer, default=100)  # Límite de correos por lista
     email_count = Column(Integer, default=0)
     created_by = Column(ForeignKey("users.user_id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)

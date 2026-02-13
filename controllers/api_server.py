@@ -63,18 +63,66 @@ class ScheduleUpdateRequest(BaseModel):
 class EmailListRequest(BaseModel):
     list_name: str
     description: Optional[str] = None
+    max_recipients: Optional[int] = 100  # Límite de correos por lista
     emails: List[str] = []
 
 class EmailListResponse(BaseModel):
     list_id: str
     list_name: str
     description: Optional[str]
+    max_recipients: int
     email_count: int
     created_at: str
     created_by: str
 
 # Inicializar el engine del sistema
 system_engine = SystemEngine()
+
+def validate_email_domain(email: str, db_session) -> bool:
+    """
+    Valida que un correo pertenezca a los dominios permitidos globalmente
+    
+    Args:
+        email: Correo electrónico a validar
+        db_session: Sesión de base de datos para consultar configuración
+    
+    Returns:
+        True si el dominio está permitido o no hay restricciones, False en caso contrario
+    """
+    try:
+        # Obtener configuración global de dominios permitidos
+        from models.database import SystemConfig
+        config = db_session.query(SystemConfig).filter(
+            SystemConfig.config_key == 'allowed_domains'
+        ).first()
+        
+        allowed_domains = config.config_value if config else ''
+        
+        if not allowed_domains or not allowed_domains.strip():
+            return True  # Sin restricciones de dominio
+        
+        # Extraer dominio del correo
+        try:
+            domain = email.split('@')[1].lower().strip()
+        except IndexError:
+            return False
+        
+        # Limpiar y procesar dominios permitidos
+        allowed = [d.strip().lower() for d in allowed_domains.split(',') if d.strip()]
+        
+        return domain in allowed
+        
+    except Exception as e:
+        logger.error(f"Error validando dominio del correo {email}: {str(e)}")
+        return True  # En caso de error, permitir por defecto
+
+def validate_email_format(email: str) -> bool:
+    """
+    Valida el formato básico de un correo electrónico
+    """
+    import re
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(pattern, email) is not None
 
 @app.get("/")
 async def serve_dashboard():
@@ -558,6 +606,74 @@ async def get_test_mode():
     finally:
         db.close()
 
+@app.post("/api/config/allowed-domains")
+async def set_allowed_domains(request: Request):
+    """Configurar dominios permitidos globalmente"""
+    db = SessionLocal()
+    try:
+        # Obtener datos del request
+        data = await request.json()
+        allowed_domains = data.get('allowed_domains', '')
+        
+        admin_user = system_engine._get_or_create_admin_user(db)
+        
+        # Buscar configuración existente
+        existing_config = db.query(SystemConfig).filter(
+            SystemConfig.config_key == 'allowed_domains'
+        ).first()
+        
+        if existing_config:
+            # Actualizar existente
+            existing_config.config_value = allowed_domains.strip()
+            existing_config.updated_at = datetime.utcnow()
+            existing_config.updated_by = admin_user.user_id
+        else:
+            # Crear nueva configuración
+            new_config = SystemConfig(
+                config_key='allowed_domains',
+                config_value=allowed_domains.strip(),
+                config_type='string',
+                description='Dominios permitidos para correos electrónicos (separados por coma)'
+            )
+            db.add(new_config)
+        
+        db.commit()
+        
+        logger.info(f"🌐 Dominios permitidos actualizados: {allowed_domains}")
+        
+        return {
+            'success': True,
+            'allowed_domains': allowed_domains.strip(),
+            'message': f"Dominios permitidos configurados exitosamente"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error configurando dominios permitidos: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error configurando dominios: {str(e)}")
+    finally:
+        db.close()
+
+@app.get("/api/config/allowed-domains")
+async def get_allowed_domains():
+    """Obtener dominios permitidos configurados"""
+    db = SessionLocal()
+    try:
+        config = db.query(SystemConfig).filter(
+            SystemConfig.config_key == 'allowed_domains'
+        ).first()
+        
+        return {
+            'allowed_domains': config.config_value if config else '',
+            'message': 'Dominios permitidos obtenidos exitosamente'
+        }
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo dominios permitidos: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error obteniendo dominios: {str(e)}")
+    finally:
+        db.close()
+
 @app.post("/api/test-mode")
 async def set_test_mode(request: Request):
     """API para activar o desactivar el modo prueba"""
@@ -835,32 +951,96 @@ async def create_email_list(request: EmailListRequest):
     """Crear una nueva lista de correos desde CSV"""
     db = SessionLocal()
     try:
-        # Crear la lista
+        # Validar límite de correos
+        if len(request.emails) > (request.max_recipients or 100):
+            raise HTTPException(
+                status_code=400, 
+                detail=f"La lista contiene {len(request.emails)} correos, pero el límite es de {request.max_recipients or 100}"
+            )
+        
+        # Validar correos y filtrar por dominio si es necesario
+        valid_emails = []
+        invalid_emails = []
+        domain_rejected_emails = []
+        
+        for email in request.emails:
+            email = email.strip()
+            
+            # Validar formato
+            if not validate_email_format(email):
+                invalid_emails.append(email)
+                continue
+            
+            # Validar dominio usando configuración global
+            if not validate_email_domain(email, db):
+                domain_rejected_emails.append(email)
+                continue
+            
+            valid_emails.append(email)
+        
+        # Si hay correos inválidos, retornar error
+        if invalid_emails:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Los siguientes correos tienen formato inválido: {', '.join(invalid_emails[:5])}{'...' if len(invalid_emails) > 5 else ''}"
+            )
+        
+        if not valid_emails:
+            raise HTTPException(
+                status_code=400,
+                detail="No hay correos válidos para crear la lista"
+            )
+        
+        # Crear la lista (sin allowed_domains, ahora es global)
         email_list = EmailList(
             list_name=request.list_name,
             description=request.description,
-            email_count=len(request.emails),
+            max_recipients=request.max_recipients or 100,
+            email_count=len(valid_emails),
             created_by="system_admin"  # TODO: Obtener del usuario autenticado
         )
         db.add(email_list)
         db.flush()  # Para obtener el ID
         
         # Guardar los correos individuales
-        for email in request.emails:
+        for email in valid_emails:
             email_item = EmailListItem(
                 list_id=email_list.list_id,
-                email_address=email.strip()
+                email_address=email
             )
             db.add(email_item)
         
         db.commit()
         
+        # Construir mensaje con notificación de correos rechazados si hay
+        message = f"Lista '{request.list_name}' creada exitosamente con {len(valid_emails)} correos"
+        
+        if domain_rejected_emails:
+            # Obtener dominios permitidos para mostrarlos
+            config = db.query(SystemConfig).filter(
+                SystemConfig.config_key == 'allowed_domains'
+            ).first()
+            
+            allowed_domains_text = ""
+            if config and config.config_value:
+                allowed_domains_text = f"\n\nDominios permitidos: {config.config_value}"
+            
+            message += f". ⚠️ {len(domain_rejected_emails)} rechazados por dominio.{allowed_domains_text}"
+            
+            # Log detallado para admin
+            logger.warning(f"Correos rechazados por dominio: {', '.join(domain_rejected_emails[:10])}{'...' if len(domain_rejected_emails) > 10 else ''}")
+        
         return {
             'success': True,
-            'message': f"Lista '{request.list_name}' creada exitosamente con {len(request.emails)} correos",
-            'list_id': email_list.list_id
+            'message': message,
+            'list_id': email_list.list_id,
+            'valid_emails': len(valid_emails),
+            'domain_rejected': len(domain_rejected_emails),
+            'domain_rejected_emails': domain_rejected_emails[:10] if domain_rejected_emails else []  # Mostrar hasta 10 ejemplos
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         logger.error(f"Error creando lista de correos: {str(e)}")
@@ -879,6 +1059,7 @@ async def get_email_lists():
                 list_id=email_list.list_id,
                 list_name=email_list.list_name,
                 description=email_list.description,
+                max_recipients=email_list.max_recipients or 100,
                 email_count=email_list.email_count,
                 created_at=email_list.created_at.isoformat(),
                 created_by=email_list.created_by

@@ -178,11 +178,54 @@ class SystemEngine:
                     emails = []
                     if newsletter.email_list_id:
                         self.logger.info(f"🔍 Debug: Buscando correos en lista_id: {newsletter.email_list_id}")
+                        
+                        # Obtener la lista de correos con sus restricciones de dominio
+                        from models.database import EmailList
+                        email_list = db.query(EmailList).filter(
+                            EmailList.list_id == newsletter.email_list_id
+                        ).first()
+                        
+                        if not email_list:
+                            self.logger.error(f"❌ No se encontró la lista de correos: {newsletter.email_list_id}")
+                            return None
+                        
                         email_items = db.query(EmailListItem).filter(
                             EmailListItem.list_id == newsletter.email_list_id
                         ).all()
-                        emails = [item.email_address for item in email_items]
-                        self.logger.info(f"📧 Correos encontrados en lista: {len(emails)}")
+                        
+                        # Validar dominios usando configuración global
+                        all_emails = [item.email_address for item in email_items]
+                        
+                        # Obtener configuración global de dominios permitidos
+                        from models.database import SystemConfig
+                        config = db.query(SystemConfig).filter(
+                            SystemConfig.config_key == 'allowed_domains'
+                        ).first()
+                        
+                        allowed_domains = config.config_value if config else ''
+                        
+                        if allowed_domains and allowed_domains.strip():
+                            # Filtrar correos por dominio permitido
+                            valid_emails = []
+                            for email in all_emails:
+                                try:
+                                    domain = email.split('@')[1].lower().strip()
+                                    allowed = [d.strip().lower() for d in allowed_domains.split(',') if d.strip()]
+                                    if domain in allowed:
+                                        valid_emails.append(email)
+                                except (IndexError, AttributeError):
+                                    self.logger.warning(f"⚠️ Email con formato inválido: {email}")
+                                    continue
+                            
+                            rejected_count = len(all_emails) - len(valid_emails)
+                            if rejected_count > 0:
+                                self.logger.warning(f"🚫 {rejected_count} correos rechazados por restricciones de dominio")
+                            
+                            emails = valid_emails
+                        else:
+                            emails = all_emails
+                        
+                        self.logger.info(f"📧 Correos válidos para envío: {len(emails)}")
                     else:
                         self.logger.warning("⚠️ El newsletter no tiene email_list_id asignado")
                     

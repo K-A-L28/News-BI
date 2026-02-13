@@ -413,6 +413,12 @@ class Dashboard {
             </div>
             
             <div class="form-group">
+                <label>Dominios Permitidos:</label>
+                <input type="text" id="allowed-domains" class="form-control" placeholder="gmail.com,empresa.com,hotmail.com" value="">
+                <small class="form-text">Dominios permitidos para correos electrónicos (separados por coma). Si no especificas, se permitirán todos los dominios.</small>
+            </div>
+            
+            <div class="form-group">
                 <label>Remitente de Correos:</label>
                 <input type="email" id="email-remite" class="form-control" placeholder="noreply@empresa.com" value="">
                 <small class="form-text">Dirección de correo que aparecerá como remitente de todos los boletines</small>
@@ -449,7 +455,6 @@ class Dashboard {
             
             if (response.ok) {
                 const settings = await response.json();
-                console.log('Configuración cargada desde servidor:', settings);
                 
                 // Llenar el formulario con los valores existentes
                 if (settings.emailRemitente) {
@@ -463,6 +468,19 @@ class Dashboard {
                 }
                 if (settings.is_test_mode !== undefined) {
                     document.getElementById('test-mode-checkbox').checked = settings.is_test_mode;
+                }
+                
+                // Cargar dominios permitidos
+                try {
+                    const domainsResponse = await fetch('/api/config/allowed-domains');
+                    if (domainsResponse.ok) {
+                        const domainsData = await domainsResponse.json();
+                        if (domainsData.allowed_domains) {
+                            document.getElementById('allowed-domains').value = domainsData.allowed_domains;
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error cargando dominios permitidos:', error);
                 }
             } else {
                 console.error('Error cargando configuración desde servidor');
@@ -494,10 +512,8 @@ class Dashboard {
         const indicator = document.getElementById('test-mode-indicator');
         if (isTestMode) {
             indicator.style.display = 'flex';
-            console.log('🧪 Modo prueba activado - Indicador visible');
         } else {
             indicator.style.display = 'none';
-            console.log('📧 Modo producción - Indicador oculto');
         }
     }
 
@@ -522,9 +538,7 @@ class Dashboard {
                 this.showToast(result.message, 'success');
                 
                 if (newTestMode) {
-                    console.log('🧪 MODO PRUEBA ACTIVADO: Todos los correos se enviarán a k.acevedo@clinicassanrafael.com');
                 } else {
-                    console.log('📧 MODO PRODUCCIÓN ACTIVADO: Los correos se enviarán a las listas configuradas');
                 }
             } else {
                 const error = await response.json();
@@ -769,9 +783,6 @@ class Dashboard {
             
             const scheduleData = await response.json();
             
-            // Debug: log schedule data
-            console.log('Schedule data:', scheduleData);
-            console.log('Email lists:', scheduleData.emailLists);
             
             // Create newsletter options
             const newsletterOptions = scheduleData.newsletters.map(nl => 
@@ -873,15 +884,12 @@ class Dashboard {
             formData.append('is_enabled', isEnabled);
             
             // Add files if they were selected
-            console.log('Edit files:', this.editFiles);
             
             if (this.editFiles && this.editFiles['email-template']) {
-                console.log('Adding email template file:', this.editFiles['email-template']);
                 formData.append('email_template', this.editFiles['email-template']);
             }
             
             if (this.editFiles && this.editFiles['email-csv']) {
-                console.log('Adding email CSV file:', this.editFiles['email-csv']);
                 formData.append('email_csv', this.editFiles['email-csv']);
             }
             
@@ -1143,7 +1151,6 @@ class Dashboard {
     }
     
     selectEditFile(type) {
-        console.log(`🔍 selectEditFile called with type: ${type}`);
         
         // Create a temporary file input for edit modal
         const input = document.createElement('input');
@@ -1152,17 +1159,10 @@ class Dashboard {
         input.style.display = 'none';
         
         input.onchange = (e) => {
-            console.log(`🔍 File input changed for type: ${type}`);
             const files = e.target.files;
             const nameElement = document.getElementById(`edit-${type}-file-name`);
             
-            console.log(`🔍 Files selected: ${files.length}`);
             if (files.length > 0) {
-                console.log(`🔍 File details:`, {
-                    name: files[0].name,
-                    size: files[0].size,
-                    type: files[0].type
-                });
             }
             
             if (files.length === 0) {
@@ -1175,7 +1175,6 @@ class Dashboard {
             this.editFiles = this.editFiles || {};
             this.editFiles[type] = files[0];
             
-            console.log(`🔍 File stored in editFiles:`, Object.keys(this.editFiles));
         };
         
         document.body.appendChild(input);
@@ -1325,6 +1324,7 @@ class Dashboard {
             const emailRemitente = document.getElementById('email-remite').value;
             const piePagina = document.getElementById('pie-pagina').value;
             const limiteCorreos = document.getElementById('limite-correos').value;
+            const allowedDomains = document.getElementById('allowed-domains').value;
             
             // Validar email si se proporciona
             if (emailRemitente && !this.validateEmail(emailRemitente)) {
@@ -1345,7 +1345,7 @@ class Dashboard {
                 limiteCorreos: parseInt(limiteCorreos) || null
             };
             
-            // Enviar configuración al servidor
+            // Enviar configuración general al servidor
             const response = await fetch('/api/settings', {
                 method: 'POST',
                 headers: {
@@ -1357,8 +1357,31 @@ class Dashboard {
             if (response.ok) {
                 const result = await response.json();
                 if (result.success) {
-                    this.closeModal();
-                    this.showToast('Configuración guardada exitosamente', 'success');
+                    // Guardar dominios permitidos por separado
+                    try {
+                        const domainsResponse = await fetch('/api/config/allowed-domains', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ allowed_domains: allowedDomains })
+                        });
+                        
+                        if (domainsResponse.ok) {
+                            const domainsResult = await domainsResponse.json();
+                            if (domainsResult.success) {
+                                this.closeModal();
+                                this.showToast('Configuración guardada exitosamente', 'success');
+                            } else {
+                                this.showToast('Error guardando dominios permitidos', 'error');
+                            }
+                        } else {
+                            this.showToast('Error guardando dominios permitidos', 'error');
+                        }
+                    } catch (error) {
+                        console.error('Error guardando dominios permitidos:', error);
+                        this.showToast('Error guardando dominios permitidos', 'error');
+                    }
                 } else {
                     this.showToast(result.message || 'Error guardando configuración', 'error');
                 }
@@ -1400,7 +1423,6 @@ class Dashboard {
             
             if (response.ok) {
                 const settings = await response.json();
-                console.log('Configuración cargada desde servidor:', settings);
                 return settings;
             } else {
                 console.error('Error cargando configuración desde servidor');
@@ -1437,21 +1459,25 @@ class Dashboard {
     }
 
     // Toast Methods
-    showToast(message, type = 'info') {
+    showToast(message, type = 'info', duration = 5000) {
+        // Eliminar todos los toast existentes antes de mostrar uno nuevo
+        const container = document.getElementById('toast-container');
+        const existingToasts = container.querySelectorAll('.toast');
+        existingToasts.forEach(toast => toast.remove());
+        
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
         toast.innerHTML = `
-            <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
+            <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : type === 'warning' ? 'exclamation-triangle' : 'info-circle'}"></i>
             <span>${message}</span>
         `;
         
-        const container = document.getElementById('toast-container');
         container.appendChild(toast);
         
-        // Auto remove after 3 seconds
+        // Auto remove después del tiempo especificado (default 5 segundos)
         setTimeout(() => {
             toast.remove();
-        }, 3000);
+        }, duration);
     }
 }
 
@@ -1749,7 +1775,6 @@ function closeEmailListModal() {
 }
 
 async function uploadEmailList() {
-    console.log('uploadEmailList() llamada');
     const listName = document.getElementById('email-list-name').value;
     const descriptionElement = document.getElementById('email-list-description');
     const description = descriptionElement ? descriptionElement.value : '';
@@ -1761,47 +1786,55 @@ async function uploadEmailList() {
     }
     
     try {
-        // Leer archivo CSV
-        const csvText = await csvFile.text();
-        console.log('Contenido del CSV:', csvText);
-        
-        const emails = parseCSV(csvText);
-        console.log('Correos procesados:', emails);
-        console.log('Número de correos:', emails.length);
-        
-        if (emails.length === 0) {
-            dashboard.showToast('No se encontraron correos válidos en el CSV', 'error');
+        // Validar que el archivo sea un CSV
+        if (!csvFile.name.toLowerCase().endsWith('.csv')) {
+            dashboard.showToast('Por favor selecciona un archivo CSV válido', 'error');
             return;
         }
         
-        // Validar límite de correos
-        const config = await dashboard.getConfiguration();
-        console.log('Configuración actual:', config);
+        // Leer archivo CSV
+        const csvText = await csvFile.text();
         
-        if (config.limiteCorreos && config.limiteCorreos > 0) {
-            const limite = parseInt(config.limiteCorreos);
-            console.log(`Validando límite: ${emails.length} correos vs límite de ${limite}`);
-            
-            if (emails.length > limite) {
-                dashboard.showToast(
-                    `El archivo CSV contiene ${emails.length} correos, pero el límite establecido es de ${limite} correos por lista. Por favor reduzca el número de correos y vuelva a intentarlo.`, 
-                    'error'
-                );
-                return;
-            }
-            
-            // Mostrar advertencia si está cerca del límite
-            if (emails.length > limite * 0.9) {
-                dashboard.showToast(
-                    `Advertencia: La lista contiene ${emails.length} correos, está cerca del límite de ${limite}.`, 
-                    'warning'
-                );
-            }
-        } else {
-            console.log('No hay límite de correos configurado o es inválido');
+        if (!csvText || csvText.trim().length === 0) {
+            dashboard.showToast('El archivo CSV está vacío', 'error');
+            return;
         }
         
-        // Crear la lista
+        console.log('Contenido del CSV (primeros 200 caracteres):', csvText.substring(0, 200));
+        
+        const emails = parseCSV(csvText);
+        
+        console.log('Correos parseados:', emails);
+        
+        if (emails.length === 0) {
+            dashboard.showToast('No se encontraron correos válidos en el CSV. Verifica el formato del archivo.', 'error');
+            return;
+        }
+        
+        // Obtener límite global desde configuraciones
+        let maxRecipients = 100; // valor por defecto
+        try {
+            const configResponse = await fetch('/api/settings');
+            if (configResponse.ok) {
+                const config = await configResponse.json();
+                if (config.limiteCorreos && !isNaN(config.limiteCorreos)) {
+                    maxRecipients = parseInt(config.limiteCorreos);
+                }
+            }
+        } catch (error) {
+            console.warn('No se pudo obtener el límite de correos, usando valor por defecto:', error);
+        }
+        
+        // Validar límite de correos global
+        if (emails.length > maxRecipients) {
+            dashboard.showToast(
+                `El archivo CSV contiene ${emails.length} correos, pero el límite global es de ${maxRecipients} correos por lista.`, 
+                'error'
+            );
+            return;
+        }
+        
+        // Crear la lista sin max_recipients (ahora es global)
         const response = await fetch('/api/email-lists', {
             method: 'POST',
             headers: {
@@ -1810,56 +1843,79 @@ async function uploadEmailList() {
             body: JSON.stringify({
                 list_name: listName,
                 description: description,
+                max_recipients: maxRecipients, // Guardar para referencia, pero no se usa en validación
                 emails: emails
             })
         });
         
-        const result = await response.json();
-        
         if (response.ok) {
-            dashboard.showToast(`Lista '${listName}' creada exitosamente con ${emails.length} correos`, 'success');
+            const result = await response.json();
+            
+            // Construir mensaje completo
+            let message = result.message;
+            
+            // Mostrar un solo mensaje con toda la información
+            dashboard.showToast(message, result.domain_rejected > 0 ? 'warning' : 'success', 8000);
             
             // Limpiar formulario
             document.getElementById('email-list-name').value = '';
             document.getElementById('email-list-description').value = '';
             document.getElementById('email-csv-file').value = '';
             
-            closeEmailListModal();
+            // Recargar listas
             loadEmailLists();
         } else {
-            dashboard.showToast(result.detail || 'Error creando la lista', 'error');
+            const error = await response.json();
+            dashboard.showToast(error.detail || 'Error creando lista de correos', 'error');
         }
         
     } catch (error) {
-        console.error('Error subiendo lista:', error);
-        dashboard.showToast('Error procesando el archivo CSV', 'error');
+        console.error('Error detallado procesando CSV:', error);
+        dashboard.showToast(`Error procesando el archivo CSV: ${error.message}`, 'error');
     }
 }
 
 function parseCSV(csvText) {
     const lines = csvText.split('\n').filter(line => line.trim());
-    console.log('Líneas del CSV:', lines);
     
     const emails = [];
     
-    // Asumir primera línea como encabezado
-    for (let i = 1; i < lines.length; i++) {
+    console.log('Total de líneas en CSV:', lines.length);
+    console.log('Primera línea (encabezado):', lines[0]);
+    
+    // Procesar todas las líneas (excepto posible encabezado)
+    for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
-        console.log(`Procesando línea ${i}:`, line);
         if (line) {
-            // Detectar correos en la línea
-            const emailMatch = line.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
-            if (emailMatch) {
-                console.log('Email encontrado:', emailMatch[1]);
-                emails.push(emailMatch[1]);
-            } else {
-                console.log('No se encontró email en la línea');
+            // Omitir primera línea si parece un encabezado
+            if (i === 0 && (line.toLowerCase().includes('email') || line.toLowerCase().includes('correo') || line.toLowerCase().includes('mail'))) {
+                console.log('Omitiendo encabezado:', line);
+                continue;
+            }
+            
+            // Dividir por comas o punto y coma
+            const columns = line.split(/[,\;]/).map(col => col.trim().replace(/"/g, ''));
+            
+            // Buscar email en cada columna
+            for (const column of columns) {
+                if (column) {
+                    // Detectar correos en la columna
+                    const emailMatch = column.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+                    if (emailMatch) {
+                        emails.push(emailMatch[1]);
+                        console.log(`Email encontrado en línea ${i + 1}:`, emailMatch[1]);
+                        break; // Solo tomar el primer email de la línea
+                    }
+                }
             }
         }
     }
     
-    console.log('Emails extraídos:', emails);
-    return [...new Set(emails)]; // Eliminar duplicados
+    const uniqueEmails = [...new Set(emails)];
+    console.log('Emails únicos encontrados:', uniqueEmails.length);
+    console.log('Lista de emails:', uniqueEmails);
+    
+    return uniqueEmails;
 }
 
 async function loadEmailLists() {
@@ -1888,6 +1944,7 @@ async function loadEmailLists() {
                     <small class="list-meta">
                         <i class="fas fa-envelope"></i> ${list.email_count} correos
                         <i class="fas fa-calendar"></i> ${new Date(list.created_at).toLocaleDateString()}
+                        <i class="fas fa-shield-alt"></i> Límite: ${list.max_recipients}
                     </small>
                 </div>
                 <div class="list-actions">
