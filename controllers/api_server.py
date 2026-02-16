@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 # Importaciones del sistema
-from models.database import SessionLocal, Schedule, Newsletter, ExecutionLog, RecipientList, FileAsset, User, SystemConfig, EmailList, EmailListItem
+from models.database import SessionLocal, Schedule, Newsletter, ExecutionLog, FileAsset, User, SystemConfig, EmailList, EmailListItem
 from sqlalchemy import extract
 from controllers.engine import SystemEngine
 

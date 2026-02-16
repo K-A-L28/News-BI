@@ -16,12 +16,18 @@ Fecha: [Fecha de desarrollo]
 """
 
 import os
+import io
+import msal
+import json
+import base64
 import logging
 import requests
-import concurrent.futures
+from PIL import Image
 from datetime import datetime
-from typing import Dict, List, Any, Tuple
 from dotenv import load_dotenv
+from babel.dates import format_date
+import concurrent.futures
+from typing import Dict, List, Tuple, Any
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -46,11 +52,15 @@ REPORT_URL_2 = os.getenv("REPORT_ID_2", "")
 GEMINI_API_KEY = [key.strip() for key in os.getenv('GEMINI_API_KEY', '').split(',') if key.strip()]
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-pro")
 
-# Función principal de ejecución (obligatoria)
+# ======================================================
+# FUNCIONES OBLIGATORIAS - ESTRUCTURA BÁSICA
+# ======================================================
+
+# Función principal de ejecución (OBLIGATORIA)
 def ejecutar_automatizacion():
     """
     Función principal que ejecuta todo el flujo del boletín.
-    Esta función es llamada automáticamente por el sistema NewsPilot.
+    ESTA FUNCIÓN ES OBLIGATORIA Y ES LLAMADA POR EL SISTEMA NEWSPILOT.
     
     Returns:
         dict: Diccionario con los datos para el correo y el resultado de la ejecución
@@ -58,41 +68,48 @@ def ejecutar_automatizacion():
     try:
         logger.info("🚀 Iniciando ejecución del boletín...")
         
-        # 1. Obtener token de autenticación (si es necesario)
-        # token_graph = obtener_token_graph()
+        # 1. Obtener token de autenticación (si necesitas APIs de Microsoft)
+        logger.info("🔑 Obteniendo token de autenticación...")
+        token_graph = obtener_token_graph()
         
-        # 2. Ejecutar consultas a APIs externas en paralelo
+        # 2. Ejecutar todas las llamadas API concurrentemente
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            # Submit todas las tareas de obtención de datos
             future_datos_principales = executor.submit(obtener_datos_principales)
             future_datos_secundarios = executor.submit(obtener_datos_secundarios)
+            future_datos_extra = executor.submit(obtener_datos_extra)
             
             # Recolectar resultados
             datos_principales = future_datos_principales.result()
             datos_secundarios = future_datos_secundarios.result()
+            datos_extra = future_datos_extra.result()
         
-        # 3. Procesar y analizar los datos
-        logger.info("📊 Procesando datos...")
+        # 3. Procesamiento de datos (secuencial, depende de los resultados)
+        logger.info("📊 Analizando métricas...")
         metricas = procesar_metricas(datos_principales)
-        analisis = generar_analisis(datos_secundarios)
+
+        logger.info("📊 Generando tablas HTML...")
+        tabla_principal = generar_tabla_html(metricas)
+        tabla_secundaria = generar_tabla_secundaria(datos_secundarios)
+
+        logger.info("🤖 Generando análisis con IA...")
+        resumen_ejecutivo = generar_resumen_con_ia(metricas)
         
-        # 4. Generar contenido HTML
-        tabla_html = generar_tabla_html(metricas)
-        resumen_html = generar_resumen_html(analisis)
-        
-        # 5. Preparar datos para la plantilla
+        # 4. Preparar datos para la plantilla
         datos_boletin = {
-            # Fechas
+            # Fechas (formatos estándar del sistema)
             "FECHA": datetime.now().strftime("%d/%m/%Y %H:%M"),
-            "FECHA_EXPLICITA": datetime.now().strftime("%d de %B de %Y"),
-            "MES": datetime.now().strftime("%B").capitalize(),
+            "FECHA_EXPLICITA": format_date(datetime.now(), format="MMMM yyyy", locale="es").capitalize(),
+            "MES": format_date(datetime.now(), format="MMMM", locale="es").capitalize(),
             
-            # URLs de reportes
+            # URLs de reportes (el sistema las inyecta)
             "POWERBI_REPORT_URL": REPORT_URL.replace('&', '&amp;') if REPORT_URL else "",
             "POWERBI_REPORT_URL_2": REPORT_URL_2.replace('&', '&amp;') if REPORT_URL_2 else "",
             
             # Datos procesados
-            "TABLA_RESULTADOS": tabla_html,
-            "RESUMEN_ANALISIS": resumen_html,
+            "TABLA_PRINCIPAL": tabla_principal,
+            "TABLA_SECUNDARIA": tabla_secundaria,
+            "RESUMEN_EJECUTIVO": resumen_ejecutivo,
             "TOTAL_REGISTROS": len(metricas.get('datos', [])),
             
             # Métricas clave
@@ -102,18 +119,22 @@ def ejecutar_automatizacion():
             
             # Alertas (bloques HTML completos)
             "BLOQUE_ALERTAS": generar_alertas_html(metricas),
+            "BLOQUE_ALERTA_ALTA": generar_alerta_alta_html(metricas),
+            "BLOQUE_ALERTA_BAJA": generar_alerta_baja_html(metricas),
         }
         
-        # 6. Enviar correo (el sistema se encarga de esto)
-        # enviar_correo(datos_boletin, token_graph)
+        # 5. Enviar correo (el sistema llama a esta función automáticamente)
+        # ESTA FUNCIÓN ES LLAMADA POR EL WORKER DESPUÉS DE TU EJECUCIÓN
+        enviar_correo(datos_boletin, token_graph)
         
         logger.info("✅ Boletín procesado exitosamente")
         
-        # 7. Retornar resultado para el sistema
+        # 6. Retornar resultado para el sistema
         return {
             'success': True,
             'message': 'Boletín ejecutado exitosamente',
             'data': datos_boletin,
+            'logs': f"Procesados {len(metricas.get('datos', []))} registros",
             'execution_id': f"boletin_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         }
         
@@ -122,8 +143,34 @@ def ejecutar_automatizacion():
         return {
             'success': False,
             'error': f'Error en la ejecución: {str(e)}',
+            'logs': f"Error: {str(e)}",
             'execution_id': f"error_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         }
+
+# ======================================================
+# FUNCIONES AUXILIARES - EJEMPLOS
+# ======================================================
+
+def obtener_token_graph():
+    """Obtiene token para Microsoft Graph."""
+    try:
+        authority = f"https://login.microsoftonline.com/{TENANT_ID}"
+        scope = "https://graph.microsoft.com/.default"
+        
+        app = msal.ConfidentialClientApplication(
+            client_id=CLIENT_ID,
+            authority=authority,
+            client_credential=CLIENT_SECRET
+        )
+        result = app.acquire_token_for_client(scopes=[scope])
+        
+        if "access_token" not in result:
+            raise Exception(f"Error al obtener token: {result.get('error_description', 'Error desconocido')}")
+        
+        return result["access_token"]
+    except Exception as e:
+        logger.error(f"Error obteniendo token: {str(e)}")
+        raise
 
 # Funciones auxiliares (ejemplos)
 def obtener_datos_principales():
@@ -151,7 +198,27 @@ def obtener_datos_principales():
 
 def obtener_datos_secundarios():
     """Obtiene datos secundarios desde otra fuente."""
-    # Similar a obtener_datos_principales pero para otros datos
+    try:
+        logger.info("🔍 Obteniendo datos secundarios...")
+        
+        response = requests.post(
+            PA_URL_PRINCIPAL,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            json={"dax_query": "TU_CONSULTA_DAX_SECUNDARIA"},
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {}
+            
+    except Exception as e:
+        logger.error(f"❌ Error obteniendo datos secundarios: {str(e)}")
+        return {}
+
+def obtener_datos_extra():
+    """Obtiene datos adicionales."""
     return {}
 
 def procesar_metricas(datos):
@@ -173,6 +240,68 @@ def generar_analisis(datos):
     """Genera análisis de los datos."""
     # Aquí puedes usar Gemini para generar análisis automáticos
     return {"analisis": "Análisis generado automáticamente"}
+
+def generar_tabla_secundaria(datos):
+    """Genera tabla secundaria."""
+    return "<p>Tabla secundaria</p>"
+
+def generar_resumen_con_ia(metricas):
+    """Genera resumen usando IA (opcional)."""
+    return "Resumen generado automáticamente"
+
+def generar_alerta_alta_html(metricas):
+    """Genera alerta específica para valores altos."""
+    if metricas.get('promedio', 0) > 80:
+        return f"""
+        <tr>
+            <td height="12" style="font-size:1px; line-height:1px;">&nbsp;</td>
+        </tr>
+        <tr>
+            <td bgcolor="#FEF2F2" style="padding: 12px 16px; border-radius: 6px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                    <tr>
+                        <td width="28" valign="middle">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                                <tr>
+                                    <td width="16" height="16" bgcolor="#ef4444" style="border-radius: 50%; font-size: 1px; line-height: 1px;">&nbsp;</td>
+                                </tr>
+                            </table>
+                        </td>
+                        <td style="font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; color: #E63946; line-height: 1.5;">
+                            Alerta Alta: <span style="font-weight: normal; font-size: 13px; color: #E63946;">{metricas['promedio']:.1f}%</span>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>"""
+    return ""
+
+def generar_alerta_baja_html(metricas):
+    """Genera alerta específica para valores bajos."""
+    if metricas.get('promedio', 0) < 30:
+        return f"""
+        <tr>
+            <td height="12" style="font-size:1px; line-height:1px;">&nbsp;</td>
+        </tr>
+        <tr>
+            <td bgcolor="#FFFBEB" style="padding: 12px 16px; border-radius: 6px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                    <tr>
+                        <td width="28" valign="middle">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                                <tr>
+                                    <td width="16" height="16" bgcolor="#f59e0b" style="border-radius: 50%; font-size: 1px; line-height: 1px;">&nbsp;</td>
+                                </tr>
+                            </table>
+                        </td>
+                        <td style="font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; color: #F59E0B; line-height: 1.5;">
+                            Alerta Baja: <span style="font-weight: normal; font-size: 13px; color: #F59E0B;">{metricas['promedio']:.1f}%</span>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>"""
+    return ""
 
 def generar_tabla_html(metricas):
     """Genera una tabla HTML con los resultados."""
@@ -227,11 +356,156 @@ def generar_alertas_html(metricas):
     
     return "".join(alertas)
 
-# Funciones de autenticación (si son necesarias)
-def obtener_token():
-    """Obtiene token de autenticación."""
-    # Implementar lógica de autenticación si es necesaria
-    return "token_ejemplo"
+def enviar_correo(datos_analisis, token_graph):
+    """
+    FUNCIÓN OBLIGATORIA - El worker la llama automáticamente.
+    Envía un correo con el análisis generado.
+    
+    Args:
+        datos_analisis (dict): Datos generados por ejecutar_automatizacion()
+        token_graph (str): Token de autenticación de Microsoft Graph
+    """
+    try:
+        # Obtener configuración de correo (inyectada por el sistema)
+        mail_sender = get_mail_sender()
+        destinatarios_cco = get_mail_bcc()
+        
+        if not mail_sender or not destinatarios_cco:
+            logger.warning("⚠️ No se configuró remitente o destinatarios")
+            return
+
+        attachments: list[dict] = []
+        html_final = ""
+
+        # Obtener plantilla de correo y pie de página (inyectadas por el sistema)
+        email_template = getattr(__builtins__, 'EMAIL_TEMPLATE_CONTENT', None)
+        if not email_template:
+            email_template = os.getenv('EMAIL_TEMPLATE_CONTENT')
+            
+        footer_text = getattr(__builtins__, 'FOOTER_TEXT', None)
+        if not footer_text:
+            footer_text = os.getenv('FOOTER_TEXT')
+
+        # Cargar plantilla HTML del boletín
+        try:
+            with open("./template/report_template.html", "r", encoding='utf-8') as f:
+                html_boletin = f.read()
+
+            # Reemplazar placeholders en el HTML del boletín
+            for key, value in datos_analisis.items():
+                html_boletin = html_boletin.replace(f"{{{key.upper()}}}", str(value))
+                
+            # Combinar con plantilla de correo si existe
+            if email_template:
+                mensaje_intro = email_template
+                for key, value in datos_analisis.items():
+                    mensaje_intro = mensaje_intro.replace(f"{{{key.upper()}}}", str(value))
+                html_final = mensaje_intro + html_boletin
+            else:
+                html_final = html_boletin
+                
+        except FileNotFoundError:
+            logger.error("Error al cargar plantilla: template/report_template.html no encontrado")
+            html_final = "<h1>Error: Archivo de plantilla no encontrado</h1>"
+        
+        # Agregar pie de página si no está en la plantilla
+        if footer_text and '{footer}' not in (email_template or ''):
+            html_final += f"<br><br><hr><div style='text-align: center; font-size: 12px; color: #666;'>{footer_text}</div>"
+        
+        # Procesar avatar inline si existe
+        avatar_path = "./template/avatar_logo.png"
+        if os.path.exists(avatar_path):
+            try:
+                avatar_bytes, avatar_mime = optimizar_imagen(avatar_path, ancho_max=200, preservar_alpha=True)
+                avatar_b64 = base64.b64encode(avatar_bytes).decode('utf-8')
+                html_final = html_final.replace("{AVATAR_SRC}", "cid:AVATAR_IMG")
+                attachments.append({
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": "avatar.png" if avatar_mime == "image/png" else "avatar.jpg",
+                    "contentId": "AVATAR_IMG",
+                    "isInline": True,
+                    "contentType": avatar_mime,
+                    "contentBytes": avatar_b64
+                })
+            except Exception as e:
+                logger.error(f"Error al adjuntar avatar: {str(e)}")
+                html_final = html_final.replace("{AVATAR_SRC}", "")
+        else:
+            html_final = html_final.replace("{AVATAR_SRC}", "")
+
+        # Construir payload para Microsoft Graph
+        payload = {
+            "message": {
+                "subject": f"Reporte de Gestión - {datetime.now().strftime('%d/%m/%Y')}",
+                "body": {
+                    "contentType": "html",
+                    "content": html_final
+                },
+                "toRecipients": [],
+                "bccRecipients": [{"emailAddress": {"address": email}} for email in destinatarios_cco] if destinatarios_cco else [],
+                "attachments": attachments
+            },
+            "saveToSentItems": False
+        }
+
+        logger.info(f"📤 Enviando correo desde {mail_sender} a {len(destinatarios_cco)} destinatarios...")
+        url = f"https://graph.microsoft.com/v1.0/users/{mail_sender}/sendMail"
+        response = requests.post(
+            url,
+            headers={
+                "Authorization": f"Bearer {token_graph}",
+                "Content-Type": "application/json"
+            },
+            json=payload,
+            timeout=30
+        )
+        response.raise_for_status()
+        logger.info("👌 Correo enviado correctamente")
+
+    except requests.HTTPError as e:
+        logger.error(f"❌ Error HTTP al enviar el correo: {e.response.text if e.response is not None else str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error al enviar el correo: {str(e)}")
+
+# Funciones auxiliares de correo
+def get_mail_sender():
+    """Obtiene el remitente de correo dinámicamente desde el entorno."""
+    return os.getenv('MAIL_SENDER')
+
+def get_mail_bcc():
+    """Obtiene los destinatarios BCC dinámicamente desde el entorno."""
+    mail_bcc = os.getenv('MAIL_BCC', '')
+    return [email.strip() for email in mail_bcc.split(',') if email.strip()]
+
+def optimizar_imagen(ruta_imagen, ancho_max=800, calidad=85, preservar_alpha=True):
+    """Optimiza imagen para correo electrónico."""
+    with Image.open(ruta_imagen) as img:
+        if preservar_alpha:
+            if img.mode not in ('RGBA', 'LA'):
+                img = img.convert('RGBA')
+        else:
+            if img.mode in ('RGBA', 'LA'):
+                fondo = Image.new('RGB', img.size, (255, 255, 255))
+                fondo.paste(img, mask=img.split()[-1])
+                img = fondo
+            elif img.mode not in ('RGB', 'L'):
+                img = img.convert('RGB')
+        
+        w, h = img.size
+        if w > ancho_max:
+            ratio = ancho_max / float(w)
+            img = img.resize((ancho_max, int(h * ratio)), Image.Resampling.LANCZOS)
+
+        buf = io.BytesIO()
+        if preservar_alpha:
+            img.save(buf, format='PNG', optimize=True)
+            mime_type = 'image/png'
+        else:
+            img.save(buf, format='JPEG', quality=calidad, optimize=True, progressive=False)
+            mime_type = 'image/jpeg'
+
+        return buf.getvalue(), mime_type
 
 # Punto de entrada (obligatorio)
 if __name__ == "__main__":
@@ -433,13 +707,32 @@ El sistema inyecta automáticamente estas variables en tu script:
 
 ## 🔄 Flujo de Ejecución
 
-1. **Scheduler** activa el boletín a la hora programada
+1. **Worker** detecta hora programada del boletín
 2. **Engine** carga el script, consultas y plantilla desde la BD
 3. **Script** ejecuta `ejecutar_automatizacion()` y retorna datos
-4. **Engine** combina datos con la plantilla HTML
-5. **Engine** envía el correo usando la configuración del sistema
+4. **Script** llama `enviar_correo(datos, token)` para enviar el correo
+5. **Engine** registra el resultado en la base de datos
 
-## 📝 Variables Disponibles en la Plantilla HTML
+## ⚙️ Variables del Sistema Disponibles
+
+El sistema inyecta automáticamente estas variables en tu script:
+
+### Variables de Entorno (Configuración Global)
+- `TENANT_ID`: ID del tenant de Azure
+- `CLIENT_ID`: ID del cliente de la aplicación
+- `CLIENT_SECRET`: Secreto del cliente
+- `GEMINI_API_KEY`: Claves API de Gemini (separadas por comas)
+- `GEMINI_MODEL`: Modelo de Gemini a usar
+- `REPORT_ID`: ID del reporte Power BI principal
+- `REPORT_ID_2`: ID del reporte Power BI secundario
+
+### Variables Inyectadas en Tiempo de Ejecución
+- `EMAIL_TEMPLATE_CONTENT`: Plantilla de correo personalizada (si existe)
+- `FOOTER_TEXT`: Pie de página configurado
+- `MAIL_SENDER`: Remitente de correos
+- `MAIL_BCC`: Destinatarios en BCC
+
+## � Variables Disponibles en la Plantilla HTML
 
 La plantilla puede usar todas las variables retornadas por `ejecutar_automatizacion()`:
 
@@ -457,22 +750,41 @@ La plantilla puede usar todas las variables retornadas por `ejecutar_automatizac
 
 ## ✅ Buenas Prácticas
 
-### 1. **Estructura del Script**
+### 1. **Estructura del Script (OBLIGATORIO)**
 ```python
-# Obligatorio: Función principal
 def ejecutar_automatizacion():
+    """FUNCIÓN OBLIGATORIA - Punto de entrada del sistema"""
     try:
-        # Tu lógica aquí
+        # 1. Obtener token si necesitas APIs
+        token_graph = obtener_token_graph()
+        
+        # 2. Obtener datos concurrentemente
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            # ... tus llamadas API
+            
+        # 3. Procesar datos
+        datos_boletin = {...}
+        
+        # 4. Enviar correo (OBLIGATORIO)
+        enviar_correo(datos_boletin, token_graph)
+        
+        # 5. Retornar resultado
         return {
             'success': True,
             'message': 'Boletín ejecutado exitosamente',
-            'data': datos_boletin
+            'data': datos_boletin,
+            'logs': "Logs de ejecución"
         }
     except Exception as e:
         return {
             'success': False,
-            'error': f'Error: {str(e)}'
+            'error': f'Error: {str(e)}',
+            'logs': f"Error: {str(e)}"
         }
+
+def enviar_correo(datos_analisis, token_graph):
+    """FUNCIÓN OBLIGATORIA - El worker la llama automáticamente"""
+    # Implementación del envío de correo
 ```
 
 ### 2. **Manejo de Errores**

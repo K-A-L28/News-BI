@@ -2,7 +2,7 @@
 Models package - Contiene los modelos de datos y gestión de archivos
 """
 
-from .database import SessionLocal, Schedule, Newsletter, ExecutionLog, RecipientList, Recipient, User, FileAsset, SystemConfig
+from .database import SessionLocal, Schedule, Newsletter, ExecutionLog, User, FileAsset, SystemConfig, EmailList, EmailListItem
 from .file_manager import obtener_configuracion_json, obtener_plantilla_html, obtener_imagen_base64, guardar_archivo, listar_archivos
 from .cargar_archivos import cargar_archivos
 
@@ -17,11 +17,11 @@ __all__ = [
     'Schedule', 
     'Newsletter', 
     'ExecutionLog', 
-    'RecipientList', 
-    'Recipient', 
     'User', 
     'FileAsset',
     'SystemConfig',
+    'EmailList',
+    'EmailListItem',
     'obtener_configuracion_json',
     'obtener_plantilla_html', 
     'obtener_imagen_base64',

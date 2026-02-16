@@ -480,15 +480,13 @@ class Dashboard {
                         }
                     }
                 } catch (error) {
-                    console.error('Error cargando dominios permitidos:', error);
+                    this.showToast('Error cargando dominios permitidos', 'error');
                 }
             } else {
-                console.error('Error cargando configuración desde servidor');
                 this.showToast('Error cargando configuración desde servidor', 'error');
             }
             
         } catch (error) {
-            console.error('Error cargando configuración:', error);
             this.showToast('Error cargando configuración', 'error');
         }
     }
@@ -501,10 +499,10 @@ class Dashboard {
                 const data = await response.json();
                 this.updateTestModeIndicator(data.is_test_mode);
             } else {
-                console.error('Error cargando modo prueba');
+                this.showToast('Error cargando modo prueba', 'error');
             }
         } catch (error) {
-            console.error('Error cargando modo prueba:', error);
+            this.showToast('Error cargando modo prueba', 'error');
         }
     }
 
@@ -547,7 +545,6 @@ class Dashboard {
                 checkbox.checked = !newTestMode;
             }
         } catch (error) {
-            console.error('Error cambiando modo prueba:', error);
             this.showToast('Error cambiando modo prueba', 'error');
             // Revertir checkbox si hubo error
             const checkbox = document.getElementById('test-mode-checkbox');
@@ -963,7 +960,6 @@ class Dashboard {
                 this.closeModal();
             }
         } catch (error) {
-            console.error('Error:', error);
             this.showToast('Error de conexión', 'error');
             this.closeModal();
         }
@@ -1031,7 +1027,16 @@ class Dashboard {
                     <select id="email-list-select" class="form-control" required>
                         <option value="" disabled selected>Selecciona una lista de correos...</option>
                     </select>
-                    <small class="form-text">Selecciona la lista de correos a la que se enviará este boletín</small>
+                    <small class="form-text">Selecciona la lista % de correos a la que se enviará este boletín</small>
+                </div>
+
+                <div class="form-group">
+                    <label>Plantilla HTML del Correo (.html):</label>
+                    <div class="file-upload-area" onclick="dashboard.selectFile('email-template')">
+                        <i class="fas fa-envelope"></i>
+                        <span id="email-template-file-name">Haz clic para seleccionar la plantilla HTML del correo</span>
+                    </div>
+                    <small class="form-text">Plantilla para el cuerpo del correo electrónico "asunto y mensaje" (opcional)</small>
                 </div>
                 
                 <div class="form-group">
@@ -1062,21 +1067,12 @@ class Dashboard {
                 </div>
                 
                 <div class="form-group">
-                    <label>Plantilla HTML del Correo (.html):</label>
-                    <div class="file-upload-area" onclick="dashboard.selectFile('email-template')">
-                        <i class="fas fa-envelope"></i>
-                        <span id="email-template-file-name">Haz clic para seleccionar la plantilla HTML del correo</span>
-                    </div>
-                    <small class="form-text">Plantilla para el cuerpo del correo electrónico "asunto y mensaje" (opcional)</small>
-                </div>
-                
-                <div class="form-group">
                     <label>Imágenes para el HTML:</label>
                     <div class="file-upload-area" onclick="dashboard.selectFile('images')">
                         <i class="fas fa-image"></i>
                         <span id="images-file-name">Haz clic para seleccionar imágenes (PNG, JPG, etc.)</span>
                     </div>
-                    <small class="form-text">Puedes seleccionar múltiples imágenes para usar en la plantilla HTML</small>
+                    <small class="form-text">Puedes seleccionar múltiples imágenes para usar en la plantilla HTML (opcional)</small>
                 </div>
                 
                 <div class="form-actions">
@@ -1116,7 +1112,6 @@ class Dashboard {
                 }
             })
             .catch(error => {
-                console.error('Error cargando listas de correos:', error);
                 const select = document.getElementById('email-list-select');
                 if (select) {
                     select.innerHTML = '<option value="">Error cargando listas</option>';
@@ -1235,7 +1230,6 @@ class Dashboard {
             }
             
         } catch (error) {
-            console.error('Error verificando nombre del boletín:', error);
             this.showToast('Error verificando disponibilidad del nombre. Intenta de nuevo.', 'error');
             return;
         }
@@ -1379,7 +1373,6 @@ class Dashboard {
                             this.showToast('Error guardando dominios permitidos', 'error');
                         }
                     } catch (error) {
-                        console.error('Error guardando dominios permitidos:', error);
                         this.showToast('Error guardando dominios permitidos', 'error');
                     }
                 } else {
@@ -1391,7 +1384,6 @@ class Dashboard {
             }
             
         } catch (error) {
-            console.error('Error guardando configuración:', error);
             this.showToast('Error guardando configuración', 'error');
         }
     }
@@ -1425,14 +1417,12 @@ class Dashboard {
                 const settings = await response.json();
                 return settings;
             } else {
-                console.error('Error cargando configuración desde servidor');
                 // Retornar configuración por defecto si hay error
                 return {
                     limiteCorreos: 100 // Valor por defecto
                 };
             }
         } catch (error) {
-            console.error('Error cargando configuración:', error);
             // Retornar configuración por defecto si hay error
             return {
                 limiteCorreos: 100 // Valor por defecto
@@ -1763,7 +1753,6 @@ function showEmailListManager() {
     const modal = document.getElementById('email-list-modal');
     
     if (!modal) {
-        console.error('Modal email-list-modal no encontrado');
         return;
     }
     
@@ -1800,11 +1789,9 @@ async function uploadEmailList() {
             return;
         }
         
-        console.log('Contenido del CSV (primeros 200 caracteres):', csvText.substring(0, 200));
         
         const emails = parseCSV(csvText);
         
-        console.log('Correos parseados:', emails);
         
         if (emails.length === 0) {
             dashboard.showToast('No se encontraron correos válidos en el CSV. Verifica el formato del archivo.', 'error');
@@ -1822,7 +1809,7 @@ async function uploadEmailList() {
                 }
             }
         } catch (error) {
-            console.warn('No se pudo obtener el límite de correos, usando valor por defecto:', error);
+            // No se pudo obtener el límite de correos, usando valor por defecto
         }
         
         // Validar límite de correos global
@@ -1870,7 +1857,6 @@ async function uploadEmailList() {
         }
         
     } catch (error) {
-        console.error('Error detallado procesando CSV:', error);
         dashboard.showToast(`Error procesando el archivo CSV: ${error.message}`, 'error');
     }
 }
@@ -1880,8 +1866,6 @@ function parseCSV(csvText) {
     
     const emails = [];
     
-    console.log('Total de líneas en CSV:', lines.length);
-    console.log('Primera línea (encabezado):', lines[0]);
     
     // Procesar todas las líneas (excepto posible encabezado)
     for (let i = 0; i < lines.length; i++) {
@@ -1889,7 +1873,6 @@ function parseCSV(csvText) {
         if (line) {
             // Omitir primera línea si parece un encabezado
             if (i === 0 && (line.toLowerCase().includes('email') || line.toLowerCase().includes('correo') || line.toLowerCase().includes('mail'))) {
-                console.log('Omitiendo encabezado:', line);
                 continue;
             }
             
@@ -1903,7 +1886,6 @@ function parseCSV(csvText) {
                     const emailMatch = column.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
                     if (emailMatch) {
                         emails.push(emailMatch[1]);
-                        console.log(`Email encontrado en línea ${i + 1}:`, emailMatch[1]);
                         break; // Solo tomar el primer email de la línea
                     }
                 }
@@ -1912,8 +1894,6 @@ function parseCSV(csvText) {
     }
     
     const uniqueEmails = [...new Set(emails)];
-    console.log('Emails únicos encontrados:', uniqueEmails.length);
-    console.log('Lista de emails:', uniqueEmails);
     
     return uniqueEmails;
 }
@@ -1927,7 +1907,6 @@ async function loadEmailLists() {
         
         if (!result || !Array.isArray(result)) {
             container.innerHTML = '<p class="error">Error cargando las listas de correos</p>';
-            console.error('La respuesta no es un array:', result);
             return;
         }
         
@@ -1956,7 +1935,6 @@ async function loadEmailLists() {
         `).join('');
         
     } catch (error) {
-        console.error('Error cargando listas:', error);
         document.getElementById('email-lists-container').innerHTML = 
             '<p class="error">Error cargando las listas de correos</p>';
     }
@@ -1982,7 +1960,6 @@ async function deleteEmailList(listId, listName) {
         }
         
     } catch (error) {
-        console.error('Error eliminando lista:', error);
         dashboard.showToast('Error eliminando la lista', 'error');
     }
 }

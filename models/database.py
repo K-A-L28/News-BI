@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import create_engine, Column, String, Integer, Boolean, ForeignKey, DateTime, Text, Time, JSON
+from sqlalchemy import create_engine, Column, String, Integer, Boolean, ForeignKey, DateTime, Text, Time, JSON, Enum
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
+import enum
 
 # Configuración de SQLite
 DATABASE_URL = "sqlite:///boletines_v2.db"
@@ -13,16 +14,31 @@ Base = declarative_base()
 def generate_uuid():
     return str(uuid.uuid4())
 
+# --- ENUMS ---
+
+class UserRole(enum.Enum):
+    SUPER_ADMIN = "SUPER_ADMIN"
+    ADMIN = "ADMIN"
+    USER = "USER"
+
 # --- MODELOS ---
 
 class User(Base):
     __tablename__ = "users"
     user_id = Column(String, primary_key=True, default=generate_uuid)
-    external_id = Column(String, unique=True, index=True)
-    email = Column(String, unique=True)
-    full_name = Column(String)
-    role = Column(String, default="ADMIN")
+    email = Column(String, unique=True, nullable=False, index=True)  # Email de Microsoft
+    full_name = Column(String, nullable=False)  # Nombre completo de Microsoft
+    role = Column(Enum(UserRole), default=UserRole.USER, nullable=False)
     is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+    created_by = Column(ForeignKey("users.user_id"), nullable=True)  # Quién creó este usuario
+    updated_by = Column(ForeignKey("users.user_id"), nullable=True)  # Quién actualizó este usuario
+    last_login = Column(DateTime, nullable=True)  # Último inicio de sesión
+    
+    # Relación para auditoría (auto-referencia)
+    creator = relationship("User", remote_side=[user_id], foreign_keys=[created_by])
+    updater = relationship("User", remote_side=[user_id], foreign_keys=[updated_by])
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
@@ -51,31 +67,12 @@ class Newsletter(Base):
     # Relación con lista de correos
     email_list = relationship("EmailList", backref="newsletters")
 
-class Recipient(Base):
-    __tablename__ = "recipients"
-    recipient_id = Column(String, primary_key=True, default=generate_uuid)
-    list_id = Column(ForeignKey("recipient_lists.list_id"))
-    email = Column(String)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-class RecipientList(Base):
-    __tablename__ = "recipient_lists"
-    list_id = Column(String, primary_key=True, default=generate_uuid)
-    list_name = Column(String)
-    allowed_domains = Column(String)
-    max_recipients = Column(Integer, default=100)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    created_by = Column(ForeignKey("users.user_id"))
-    
-    # Relación con recipients
-    recipients = relationship("Recipient", backref="recipient_list_obj", cascade="all, delete-orphan")
 
 class Schedule(Base):
     __tablename__ = "schedules"
     schedule_id = Column(String, primary_key=True, default=generate_uuid)
     newsletter_id = Column(ForeignKey("newsletters.newsletter_id"))
-    list_id = Column(ForeignKey("recipient_lists.list_id"))
+    list_id = Column(ForeignKey("email_lists.list_id"))
     send_time = Column(Time)
     timezone = Column(String, default="America/Bogota")
     is_enabled = Column(Boolean, default=False)
@@ -88,7 +85,7 @@ class Schedule(Base):
     
     # Relaciones
     newsletter = relationship("Newsletter", backref="schedules")
-    recipient_list = relationship("RecipientList", backref="schedules")
+    email_list = relationship("EmailList", backref="schedules")
 
 class FileAsset(Base):
     __tablename__ = "file_assets"
@@ -151,6 +148,74 @@ class EmailListItem(Base):
     
     # Relación con la lista padre
     email_list = relationship("EmailList", back_populates="emails")
+
+# --- FUNCIONES DE UTILIDAD ---
+
+def create_or_update_user(email: str, full_name: str, session, created_by: str = None):
+    """
+    Crea o actualiza un usuario desde la autenticación de Microsoft.
+    Si el usuario no existe, se crea con rol USER por defecto.
+    """
+    user = session.query(User).filter(User.email == email).first()
+    
+    if user:
+        # Actualizar último login y nombre si ha cambiado
+        user.last_login = datetime.utcnow()
+        if user.full_name != full_name:
+            user.full_name = full_name
+            user.updated_by = created_by
+            user.updated_at = datetime.utcnow()
+    else:
+        # Crear nuevo usuario
+        user = User(
+            email=email,
+            full_name=full_name,
+            role=UserRole.USER,
+            created_by=created_by,
+            last_login=datetime.utcnow()
+        )
+        session.add(user)
+    
+    return user
+
+def update_user_role(user_id: str, new_role: UserRole, updated_by: str, session):
+    """
+    Actualiza el rol de un usuario con auditoría.
+    """
+    user = session.query(User).filter(User.user_id == user_id).first()
+    if not user:
+        raise ValueError(f"Usuario con ID {user_id} no encontrado")
+    
+    old_role = user.role
+    user.role = new_role
+    user.updated_by = updated_by
+    user.updated_at = datetime.utcnow()
+    
+    # Crear registro de auditoría
+    audit_log = AuditLog(
+        entity_type="USER",
+        entity_id=user_id,
+        action="UPDATE_ROLE",
+        performed_by=updated_by,
+        old_value={"role": old_role.value},
+        new_value={"role": new_role.value}
+    )
+    session.add(audit_log)
+    
+    return user
+
+def get_users_by_role(role: UserRole, session):
+    """
+    Obtiene todos los usuarios con un rol específico.
+    """
+    return session.query(User).filter(User.role == role, User.is_active == True).all()
+
+def can_manage_roles(user_id: str, session):
+    """
+    Verifica si un usuario puede gestionar roles (solo SUPER_ADMIN).
+    """
+    user = session.query(User).filter(User.user_id == user_id).first()
+    return user and user.role == UserRole.SUPER_ADMIN
 
 # Función para crear la base de datos
 def init_db():
