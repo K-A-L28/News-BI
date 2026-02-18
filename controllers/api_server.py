@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from models.database import SessionLocal, Schedule, Newsletter, ExecutionLog, FileAsset, User, SystemConfig, EmailList, EmailListItem
 from sqlalchemy import extract
 from controllers.engine import SystemEngine
+from utils.encryption import env_encryptor
 
 # Configuración
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -1096,6 +1097,164 @@ async def delete_email_list(list_id: str):
         raise HTTPException(status_code=500, detail=f"Error eliminando lista: {str(e)}")
     finally:
         db.close()
+
+# Endpoints para gestión de credenciales .env
+class CredentialsResponse(BaseModel):
+    credentials: Dict[str, str]
+    is_encrypted: bool
+
+class CredentialsUpdateRequest(BaseModel):
+    credentials: Dict[str, str]
+
+@app.get("/api/credentials/status")
+async def get_credentials_status():
+    """API para verificar el estado de las credenciales cargadas"""
+    try:
+        from controllers.engine import reload_env_variables, TENANT_ID, CLIENT_ID, GEMINI_API_KEY
+        
+        # Forzar recarga para obtener estado actual
+        reload_success = reload_env_variables()
+        
+        return {
+            'success': True,
+            'env_file_exists': os.path.exists(os.path.join(os.getcwd(), '.env')),
+            'reload_success': reload_success,
+            'loaded_variables': {
+                'TENANT_ID': f"{TENANT_ID[:20]}..." if TENANT_ID else None,
+                'CLIENT_ID': f"{CLIENT_ID[:20]}..." if CLIENT_ID else None,
+                'CLIENT_SECRET': "****" if os.getenv('CLIENT_SECRET') else None,
+                'GEMINI_API_KEYS_COUNT': len(GEMINI_API_KEY) if GEMINI_API_KEY else 0,
+                'GEMINI_MODEL': 'gemini-pro (fijo)'  # Valor fijo, no variable de entorno
+            },
+            'message': 'Variables recargadas exitosamente' if reload_success else 'Error recargando variables'
+        }
+    except Exception as e:
+        logger.error(f"Error obteniendo estado de credenciales: {str(e)}")
+        return {
+            'success': False,
+            'error': str(e),
+            'message': 'Error verificando estado de credenciales'
+        }
+
+@app.get("/api/credentials", response_model=CredentialsResponse)
+async def get_credentials():
+    """API para obtener credenciales del archivo .env (desencriptadas en memoria)"""
+    try:
+        env_path = os.path.join(os.getcwd(), '.env')
+        
+        # Verificar si existe el archivo
+        if not os.path.exists(env_path):
+            # Si no existe, crear desde el archivo example
+            example_path = os.path.join(os.getcwd(), '.env.example')
+            if os.path.exists(example_path):
+                with open(example_path, 'r', encoding='utf-8') as f:
+                    example_content = f.read()
+                env_encryptor.save_encrypted_env(env_path, env_encryptor.parse_env_content(example_content))
+                logger.info("📄 Archivo .env creado desde .env.example")
+            else:
+                raise HTTPException(status_code=404, detail="Archivo .env no encontrado")
+        
+        # Desencriptar contenido en memoria
+        decrypted_content = env_encryptor.decrypt_env_file(env_path)
+        if decrypted_content is None:
+            raise HTTPException(status_code=500, detail="Error desencriptando archivo .env")
+        
+        # Parsear a diccionario
+        credentials = env_encryptor.parse_env_content(decrypted_content)
+        
+        # Ocultar valores sensibles para seguridad (mostrar solo primeros caracteres)
+        safe_credentials = {}
+        sensitive_keys = ['PASSWORD', 'SECRET', 'KEY', 'TOKEN']
+        
+        for key, value in credentials.items():
+            if any(sensitive in key.upper() for sensitive in sensitive_keys) and value:
+                # Mostrar solo primeros 4 caracteres + asteriscos
+                safe_credentials[key] = value[:4] + '*' * (len(value) - 4) if len(value) > 4 else '*' * len(value)
+            else:
+                safe_credentials[key] = value
+        
+        # Verificar si el archivo está encriptado
+        with open(env_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        try:
+            import base64
+            base64.b64decode(content.encode('utf-8'))
+            is_encrypted = True
+        except Exception:
+            is_encrypted = False
+        
+        return CredentialsResponse(
+            credentials=safe_credentials,
+            is_encrypted=is_encrypted
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error obteniendo credenciales: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error obteniendo credenciales: {str(e)}")
+
+@app.post("/api/credentials")
+async def update_credentials(request: CredentialsUpdateRequest):
+    """API para actualizar credenciales del archivo .env (encriptar y guardar)"""
+    try:
+        env_path = os.path.join(os.getcwd(), '.env')
+        
+        # Guardar credenciales encriptadas
+        success = env_encryptor.save_encrypted_env(env_path, request.credentials)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Error guardando credenciales")
+        
+        logger.info("✅ Credenciales actualizadas y encriptadas exitosamente")
+        
+        return {
+            'success': True,
+            'message': 'Credenciales guardadas y encriptadas exitosamente'
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error actualizando credenciales: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error actualizando credenciales: {str(e)}")
+
+@app.get("/api/credentials/raw")
+async def get_raw_credentials():
+    """API para obtener credenciales completas (sin ocultar) - solo para edición"""
+    try:
+        env_path = os.path.join(os.getcwd(), '.env')
+        
+        # Verificar si existe el archivo
+        if not os.path.exists(env_path):
+            # Si no existe, crear desde el archivo example
+            example_path = os.path.join(os.getcwd(), '.env.example')
+            if os.path.exists(example_path):
+                with open(example_path, 'r', encoding='utf-8') as f:
+                    example_content = f.read()
+                env_encryptor.save_encrypted_env(env_path, env_encryptor.parse_env_content(example_content))
+                logger.info("📄 Archivo .env creado desde .env.example para endpoint raw")
+            else:
+                raise HTTPException(status_code=404, detail="Archivo .env no encontrado")
+        
+        # Desencriptar contenido en memoria
+        decrypted_content = env_encryptor.decrypt_env_file(env_path)
+        if decrypted_content is None:
+            raise HTTPException(status_code=500, detail="Error desencriptando archivo .env")
+        
+        # Parsear a diccionario completo
+        credentials = env_encryptor.parse_env_content(decrypted_content)
+        
+        return {
+            'credentials': credentials,
+            'raw_content': decrypted_content
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error obteniendo credenciales completas: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error obteniendo credenciales: {str(e)}")
 
 def start_api_server():
     """Iniciar servidor API"""

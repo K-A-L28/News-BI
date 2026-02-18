@@ -436,6 +436,18 @@ class Dashboard {
                 <small class="form-text">Texto que aparecerá al final de cada boletín</small>
             </div>
             
+            <div class="credentials-section">
+                <div style="position: relative; display: inline-block; width: 100%;">
+                    <button class="btn-credentials" onclick="dashboard.showCredentialsModal()">
+                        <i class="fas fa-key"></i> 
+                        <span>Gestionar Credenciales</span>
+                    </button>
+                </div>
+                <small class="form-text">
+                    <i class="fas fa-lock"></i> Acceso seguro a variables de entorno y API keys del sistema
+                </small>
+            </div>
+            
             <div class="form-actions">
                 <button class="btn-primary" onclick="dashboard.saveSettings()">
                     <i class="fas fa-save"></i> Guardar Configuración
@@ -1963,3 +1975,215 @@ async function deleteEmailList(listId, listName) {
         dashboard.showToast('Error eliminando la lista', 'error');
     }
 }
+
+// Método para mostrar modal de credenciales
+Dashboard.prototype.showCredentialsModal = async function() {
+    try {
+        // Mostrar indicador de carga
+        this.showModal('Credenciales del Sistema', `
+            <div class="loading-credentials">
+                <i class="fas fa-spinner fa-spin"></i> Cargando credenciales...
+            </div>
+        `);
+        
+        // Obtener credenciales completas (sin ocultar)
+        const response = await fetch('/api/credentials/raw');
+        
+        if (!response.ok) {
+            throw new Error('Error cargando credenciales');
+        }
+        
+        const data = await response.json();
+        const credentials = data.credentials;
+        
+        // Generar formulario de credenciales con orden específico
+        let credentialsForm = '<div class="credentials-form">';
+        
+        // Orden específico para las credenciales
+        const credentialOrder = [
+            'TENANT_ID',
+            'CLIENT_ID', 
+            'CLIENT_SECRET',
+            'GEMINI_API_KEY'
+        ];
+        
+        // Primero agregar las credenciales en el orden específico
+        for (const key of credentialOrder) {
+            if (credentials.hasOwnProperty(key)) {
+                const value = credentials[key];
+                const isSensitive = key.toUpperCase().includes('PASSWORD') || 
+                                  key.toUpperCase().includes('SECRET') || 
+                                  key.toUpperCase().includes('KEY') || 
+                                  key.toUpperCase().includes('TOKEN');
+                
+                credentialsForm += `
+                    <div class="form-group">
+                        <label for="cred-${key}">${key}:</label>
+                        <div class="input-group">
+                            <input type="${isSensitive ? 'password' : 'text'}" 
+                                   id="cred-${key}" 
+                                   class="form-control credential-input" 
+                                   data-key="${key}"
+                                   value="${this.escapeHtml(value)}"
+                                   placeholder="Ingrese ${key}">
+                            ${isSensitive ? `
+                                <button type="button" class="btn-toggle-password" onclick="dashboard.togglePasswordVisibility('cred-${key}')">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            ` : ''}
+                        </div>
+                        <small class="form-text">
+                            ${isSensitive ? 
+                                '<i class="fas fa-lock"></i> Información sensible - mantener segura' : 
+                                '<i class="fas fa-info-circle"></i> Variable de configuración'}
+                        </small>
+                    </div>
+                `;
+            }
+        }
+        
+        // Luego agregar cualquier otra credencial que no esté en el orden específico
+        for (const [key, value] of Object.entries(credentials)) {
+            if (!credentialOrder.includes(key)) {
+                const isSensitive = key.toUpperCase().includes('PASSWORD') || 
+                                  key.toUpperCase().includes('SECRET') || 
+                                  key.toUpperCase().includes('KEY') || 
+                                  key.toUpperCase().includes('TOKEN');
+                
+                credentialsForm += `
+                    <div class="form-group">
+                        <label for="cred-${key}">${key}:</label>
+                        <div class="input-group">
+                            <input type="${isSensitive ? 'password' : 'text'}" 
+                                   id="cred-${key}" 
+                                   class="form-control credential-input" 
+                                   data-key="${key}"
+                                   value="${this.escapeHtml(value)}"
+                                   placeholder="Ingrese ${key}">
+                            ${isSensitive ? `
+                                <button type="button" class="btn-toggle-password" onclick="dashboard.togglePasswordVisibility('cred-${key}')">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            ` : ''}
+                        </div>
+                        <small class="form-text">
+                            ${isSensitive ? 
+                                '<i class="fas fa-lock"></i> Información sensible - mantener segura' : 
+                                '<i class="fas fa-info-circle"></i> Variable de configuración'}
+                        </small>
+                    </div>
+                `;
+            }
+        }
+        
+        credentialsForm += `
+            </div>
+            
+            <div class="form-actions">
+                <button class="btn-primary" onclick="dashboard.saveCredentials()">
+                    <i class="fas fa-save"></i> Guardar y Encriptar
+                </button>
+                <button class="btn-secondary" onclick="dashboard.closeModal()">Cancelar</button>
+            </div>
+            
+            <div class="security-notice">
+                <i class="fas fa-shield-alt"></i>
+                <strong>Nota de seguridad:</strong> Las credenciales se guardan de forma segura y no son visibles para otros usuarios.
+            </div>
+        `;
+        
+        // Actualizar modal con el formulario
+        this.showModal('Credenciales del Sistema', credentialsForm);
+        
+        // Agregar evento para detectar cambios
+        const inputs = document.querySelectorAll('.credential-input');
+        inputs.forEach(input => {
+            input.addEventListener('input', () => {
+                this.markCredentialsAsChanged();
+            });
+        });
+        
+        this.credentialsChanged = false;
+        
+    } catch (error) {
+        console.error('Error mostrando modal de credenciales:', error);
+        this.showToast('Error cargando credenciales', 'error');
+        this.closeModal();
+    }
+};
+
+// Método para alternar visibilidad de contraseñas
+Dashboard.prototype.togglePasswordVisibility = function(inputId) {
+    const input = document.getElementById(inputId);
+    const button = input.nextElementSibling;
+    const icon = button.querySelector('i');
+    
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.className = 'fas fa-eye-slash';
+    } else {
+        input.type = 'password';
+        icon.className = 'fas fa-eye';
+    }
+};
+
+// Método para marcar credenciales como modificadas
+Dashboard.prototype.markCredentialsAsChanged = function() {
+    this.credentialsChanged = true;
+};
+
+// Método para guardar credenciales
+Dashboard.prototype.saveCredentials = async function() {
+    try {
+        if (!this.credentialsChanged) {
+            this.showToast('No hay cambios para guardar', 'info');
+            return;
+        }
+        
+        // Recopilar todas las credenciales del formulario
+        const credentials = {};
+        const inputs = document.querySelectorAll('.credential-input');
+        
+        inputs.forEach(input => {
+            const key = input.dataset.key;
+            const value = input.value;
+            credentials[key] = value;
+        });
+        
+        // Mostrar confirmación
+        if (!confirm('¿Está seguro de guardar las credenciales? El archivo .env será encriptado.')) {
+            return;
+        }
+        
+        // Enviar al servidor
+        const response = await fetch('/api/credentials', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                credentials: credentials
+            })
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            this.showToast(result.message || 'Credenciales guardadas exitosamente', 'success');
+            this.closeModal();
+        } else {
+            const error = await response.json();
+            throw new Error(error.detail || 'Error guardando credenciales');
+        }
+        
+    } catch (error) {
+        console.error('Error guardando credenciales:', error);
+        this.showToast(error.message || 'Error guardando credenciales', 'error');
+    }
+};
+
+// Método para escapar HTML
+Dashboard.prototype.escapeHtml = function(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+};

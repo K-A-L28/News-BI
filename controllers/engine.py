@@ -17,35 +17,90 @@ import traceback
 from datetime import datetime, timedelta, time
 from typing import Dict, Any, Optional, List
 from pathlib import Path
-from dotenv import load_dotenv
 
-# Cargar variables de entorno desde .env
-load_dotenv()
+# Configuración
+logger = logging.getLogger(__name__)
+
+# Importar nuestro sistema de encriptación
+from utils.encryption import env_encryptor
+
+# Cargar variables de entorno desde .env encriptado
+try:
+    env_path = Path(__file__).parent.parent / '.env'
+    if env_path.exists():
+        decrypted_content = env_encryptor.decrypt_env_file(str(env_path))
+        if decrypted_content:
+            # Parsear y establecer variables de entorno
+            credentials = env_encryptor.parse_env_content(decrypted_content)
+            for key, value in credentials.items():
+                os.environ[key] = value
+            logger.info("✅ Variables de entorno cargadas desde .env encriptado")
+        else:
+            logger.warning("⚠️ No se pudo desencriptar .env, usando variables existentes")
+    else:
+        logger.warning("⚠️ Archivo .env no encontrado, usando variables existentes")
+except Exception as e:
+    logger.error(f"❌ Error cargando .env encriptado: {str(e)}")
+    logger.info("📄 Usando variables de entorno existentes")
 
 # Importaciones del sistema
 from models.database import SessionLocal, Schedule, Newsletter, ExecutionLog, FileAsset, User, SystemConfig, EmailList, EmailListItem
 from fastapi import Request, HTTPException
-
-# Configuración
-logger = logging.getLogger(__name__)
 
 # Variables de entorno para autenticación
 TENANT_ID = os.getenv('TENANT_ID', '')
 CLIENT_ID = os.getenv('CLIENT_ID', '')
 CLIENT_SECRET = os.getenv('CLIENT_SECRET', '')
 
-# Configuración adicional del sistema
-MAIL_SENDER = os.getenv('MAIL_SENDER', '')
-DESTINATARIOS_CCO = [email.strip() for email in os.getenv('DESTINATARIOS_CCO', '').split(',') if email.strip()]
+# Configuración adicional del sistema (comentadas - no se usan)
+# MAIL_SENDER = os.getenv('MAIL_SENDER', '')
+# DESTINATARIOS_CCO = [email.strip() for email in os.getenv('DESTINATARIOS_CCO', '').split(',') if email.strip()]
 
 # Configuración de Gemini
 GEMINI_API_KEY = [key.strip() for key in os.getenv('GEMINI_API_KEY', '').split(',') if key.strip()]
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-pro")
+GEMINI_MODEL = "gemini-pro"  # Valor fijo, no variable de entorno
 
 if GEMINI_API_KEY:
     import google.generativeai as genai
     genai.configure(api_key=GEMINI_API_KEY[0])
     gemini_model = genai.GenerativeModel(GEMINI_MODEL)
+
+def reload_env_variables():
+    """
+    Recarga las variables de entorno desde el archivo .env encriptado.
+    Esto permite actualizar las credenciales sin reiniciar el servidor.
+    """
+    global TENANT_ID, CLIENT_ID, CLIENT_SECRET, GEMINI_API_KEY
+    
+    try:
+        env_path = Path(__file__).parent.parent / '.env'
+        if env_path.exists():
+            decrypted_content = env_encryptor.decrypt_env_file(str(env_path))
+            if decrypted_content:
+                # Parsear y actualizar variables de entorno
+                credentials = env_encryptor.parse_env_content(decrypted_content)
+                for key, value in credentials.items():
+                    os.environ[key] = value
+                
+                # Actualizar variables globales (solo las que usamos)
+                TENANT_ID = os.getenv('TENANT_ID', '')
+                CLIENT_ID = os.getenv('CLIENT_ID', '')
+                CLIENT_SECRET = os.getenv('CLIENT_SECRET', '')
+                GEMINI_API_KEY = [key.strip() for key in os.getenv('GEMINI_API_KEY', '').split(',') if key.strip()]
+                # GEMINI_MODEL es fijo, no se recarga desde entorno
+                
+                # Reconfigurar Gemini si hay nuevas API keys
+                if GEMINI_API_KEY:
+                    import google.generativeai as genai
+                    genai.configure(api_key=GEMINI_API_KEY[0])
+                    global gemini_model
+                    gemini_model = genai.GenerativeModel(GEMINI_MODEL)  # Usa el valor fijo
+                
+                logger.info("✅ Variables de entorno recargadas dinámicamente")
+                return True
+    except Exception as e:
+        logger.error(f"❌ Error recargando variables de entorno: {str(e)}")
+        return False
 
 class ScriptUserInterface:
     """Interfaz estándar que deben cumplir los scripts de usuario"""
@@ -410,6 +465,9 @@ class SystemEngine:
             destinatarios_cco = [test_email]
             self.logger.info(f" MODO PRUEBA ACTIVADO - Enviando a: {test_email}")
         
+        # Recargar variables de entorno dinámicamente para obtener las credenciales más recientes
+        reload_env_variables()
+        
         return {
             'tenant_id': TENANT_ID,
             'client_id': CLIENT_ID,
@@ -419,7 +477,6 @@ class SystemEngine:
             'email_template': email_template,
             'footer_text': footer_text,
             'gemini_api_key': GEMINI_API_KEY[0] if GEMINI_API_KEY else None,
-            'gemini_model': GEMINI_MODEL,
             'is_test_mode': is_test_mode
         }
     
