@@ -1107,7 +1107,7 @@ class PythonScriptWrapper:
                     
                     # Buscar el primer archivo que exista
                     for possible_path in possible_paths:
-                        if possible_path.exists():
+                        if original_exists(str(possible_path)):
                             return True
                     
                 except Exception as e:
