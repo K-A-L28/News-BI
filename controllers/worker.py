@@ -126,27 +126,16 @@ def marcar_tareas_pasadas_como_failed():
         
         current_time_utc = get_utc_now()
         current_time_local = get_local_now()
-        current_time_only = current_time_utc.time()
         
-        logger.info(f"🕐 Hora actual: {current_time_local.time()}")
+        logger.debug(f"🕐 Hora actual: {current_time_local.time()}")
         
         # Buscar tareas schedules que ya pasaron su hora de ejecución (con margen de 5 minutos)
         # Usar margen para evitar marcar como fallidas tareas que están por ejecutarse
-        margen_minutos = 5
-        cutoff_time = current_time_only
-        
-        from datetime import time as dt_time
-        cutoff_with_margin = dt_time(
-            hour=cutoff_time.hour, 
-            minute=max(0, cutoff_time.minute - margen_minutos)
-        )
-        
+        tiempo_limite = (current_time_local - timedelta(minutes=5)).time()
         past_schedules = db.query(Schedule).filter(
             Schedule.is_enabled == True,
-            Schedule.send_time < cutoff_with_margin
+            Schedule.send_time < tiempo_limite
         ).all()
-        
-        logger.info(f"📋 Schedules pasados encontrados (con margen de {margen_minutos} min): {len(past_schedules)}")
         
         marked_count = 0
         for schedule in past_schedules:
@@ -156,14 +145,15 @@ def marcar_tareas_pasadas_como_failed():
             ).order_by(ExecutionLog.started_at.desc()).first()
             
             if not execution_log:
-                # No tiene execution log, crear uno FAILED
-                logger.warning(f"⚠️ Tarea {schedule.schedule_id[:8]}... ({schedule.newsletter.name}) pasó su hora. Marcando como FAILED...")
+                # No tiene execution log, verificar si está en cola de ejecución
+                # Si no tiene log, significa que no ha sido ejecutada ni está en cola
+                logger.warning(f"⚠️ Tarea {schedule.schedule_id[:8]}... ({schedule.newsletter.name}) pasó su hora y no está en cola. Marcando como FAILED...")
                 
                 # Crear execution log FAILED
                 log = ExecutionLog(
                     schedule_id=schedule.schedule_id,
                     status="FAILED",
-                    error_detail="Auto-fail: Tarea no ejecutada - hora programada ya pasó",
+                    error_detail="Auto-fail: Tarea no ejecutada - hora programada ya pasó y no estaba en cola",
                     started_at=current_time_utc,
                     finished_at=current_time_utc
                 )
@@ -174,23 +164,32 @@ def marcar_tareas_pasadas_como_failed():
                 logger.info(f"📅 Schedule {schedule.schedule_id[:8]}... mantenido activo para reintento")
                 
             elif execution_log.status == "RUNNING":
-                # Está en RUNNING pero ya pasó su hora, marcar como FAILED
-                logger.warning(f"⚠️ Tarea {schedule.schedule_id[:8]}... ({schedule.newsletter.name}) está RUNNING pero pasó su hora. Marcando como FAILED...")
-                execution_log.status = "FAILED"
-                execution_log.error_detail = "Auto-fail: Tarea RUNNING pero hora programada ya pasó (server restart)"
-                execution_log.finished_at = current_time_utc
-                marked_count += 1
+                # Está en RUNNING pero ya pasó su hora, verificar si está atascada
+                # Asegurar que ambas fechas sean timezone-aware para la resta
+                started_at_utc = execution_log.started_at
+                if started_at_utc.tzinfo is None:
+                    started_at_utc = started_at_utc.replace(tzinfo=current_time_utc.tzinfo)
                 
-                # NO desactivar el schedule - permitirá que se reintente el próximo día
-                logger.info(f"📅 Schedule {schedule.schedule_id[:8]}... mantenido activo para reintento")
+                tiempo_ejecucion = current_time_utc - started_at_utc
+                if tiempo_ejecucion.total_seconds() > 120:  # 2 minutos
+                    logger.warning(f"⚠️ Tarea {schedule.schedule_id[:8]}... ({schedule.newsletter.name}) está RUNNING por más de 2 minutos. Marcando como FAILED...")
+                    execution_log.status = "FAILED"
+                    execution_log.error_detail = "Auto-fail: Tarea RUNNING atascada por más de 2 minutos"
+                    execution_log.finished_at = current_time_utc
+                    marked_count += 1
+                    
+                    # NO desactivar el schedule - permitirá que se reintente el próximo día
+                    logger.info(f"📅 Schedule {schedule.schedule_id[:8]}... mantenido activo para reintento")
+                else:
+                    logger.debug(f"⏳ Tarea {schedule.schedule_id[:8]}... ({schedule.newsletter.name}) en ejecución ({tiempo_ejecucion.total_seconds():.0f}s)")
             else:
-                logger.info(f"✅ Schedule {schedule.schedule_id[:8]}... ya procesado con estado: {execution_log.status}")
+                logger.debug(f"✅ Schedule {schedule.schedule_id[:8]}... ya procesado con estado: {execution_log.status}")
         
         if marked_count > 0:
             db.commit()
             logger.info(f"✅ {marked_count} tareas pasadas marcadas como FAILED (schedules mantenidos activos)")
         else:
-            logger.info("✅ No se encontraron tareas pasadas para marcar como FAILED")
+            logger.debug("✅ No se encontraron tareas pasadas para marcar como FAILED")
             
     except Exception as e:
         logger.error(f"Error marcando tareas pasadas como FAILED: {str(e)}")
@@ -201,14 +200,14 @@ def marcar_tareas_pasadas_como_failed():
 def limpiar_ejecuciones_atascadas():
     """
     Marca como FAILED las ejecuciones RUNNING atascadas.
-    Se ejecuta al iniciar el worker para limpiar tareas que quedaron colgadas por caídas del servidor.
+    Se ejecuta al iniciar el worker y periódicamente para limpiar tareas colgadas.
     """
     db = SessionLocal()
     try:
         from utils.timezone_config import get_utc_now
         
-        # Reducir el tiempo a 30 minutos para detectar más rápido las tareas colgadas
-        cutoff = get_utc_now() - timedelta(minutes=30)
+        # Reducir a 2 minutos para detectar más rápido las tareas colgadas
+        cutoff = get_utc_now() - timedelta(minutes=2)
         
         stuck = db.query(ExecutionLog).filter(
             ExecutionLog.status == 'RUNNING',
@@ -216,10 +215,15 @@ def limpiar_ejecuciones_atascadas():
         ).all()
 
         if stuck:
-            logger.warning(f"⚠️ Se encontraron {len(stuck)} ejecuciones RUNNING atascadas (más de 30 min). Marcando como FAILED...")
+            logger.warning(f"⚠️ Se encontraron {len(stuck)} ejecuciones RUNNING atascadas (más de 2 min). Marcando como FAILED...")
             for log in stuck:
-                duration = get_utc_now() - log.started_at
-                logger.warning(f"  - ID: {log.log_id[:8]}..., RUNNING desde hace {duration}")
+                # Asegurar que ambas fechas sean timezone-aware para la resta
+                started_at_utc = log.started_at
+                if started_at_utc.tzinfo is None:
+                    started_at_utc = started_at_utc.replace(tzinfo=cutoff.tzinfo)
+                
+                duration = get_utc_now() - started_at_utc
+                logger.warning(f"  - ID: {log.log_id[:8]}..., RUNNING desde hace {duration.total_seconds()/60:.1f} min")
                 
                 log.status = 'FAILED'
                 log.error_detail = (log.error_detail or '') + f' | Auto-fail: ejecución RUNNING atascada ({duration.total_seconds()/60:.1f} min) - server restart'
@@ -234,7 +238,7 @@ def limpiar_ejecuciones_atascadas():
             db.commit()
             logger.info(f"✅ {len(stuck)} ejecuciones atascadas marcadas como FAILED (schedules mantenidos activos)")
         else:
-            logger.info("✅ No hay ejecuciones RUNNING atascadas")
+            logger.debug("✅ No hay ejecuciones RUNNING atascadas")
             
     except Exception as e:
         logger.error(f"Error en limpieza de RUNNING atascados: {str(e)}")
@@ -252,11 +256,14 @@ def ejecutar_worker():
     # Limpiar ejecuciones RUNNING antiguas al iniciar
     limpiar_ejecuciones_atascadas()
     
-    # Marcar tareas pasadas como FAILED
+    # Marcar tareas pasadas como FAILED (solo las que realmente pasaron)
     marcar_tareas_pasadas_como_failed()
     
     # Cache de última hora verificada para evitar consultas repetitivas
     ultima_verificacion = None
+    limpieza_counter = 0
+    
+    logger.info("🔄 Iniciando bucle principal del worker...")
     
     while running:
         ahora = get_local_now()
@@ -266,8 +273,14 @@ def ejecutar_worker():
         # Solo verificar si cambió el minuto (evitar consultas repetitivas)
         if ultima_verificacion != hora_actual_str:
             ultima_verificacion = hora_actual_str
+            limpieza_counter += 1
             
-            # Verificar tareas pasadas en CADA minuto, no solo en hora
+            logger.debug(f"⏰ Minuto {hora_actual_str} - Contador limpieza: {limpieza_counter}")
+            
+            # Limpiar ejecuciones atascadas CADA MINUTO (no cada 5)
+            limpiar_ejecuciones_atascadas()
+            
+            # Marcar tareas pasadas como FAILED (solo las que realmente pasaron)
             marcar_tareas_pasadas_como_failed()
             
             db = SessionLocal()
