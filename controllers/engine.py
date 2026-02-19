@@ -44,7 +44,7 @@ except Exception as e:
     logger.info("📄 Usando variables de entorno existentes")
 
 # Importaciones del sistema
-from models.database import SessionLocal, Schedule, Newsletter, ExecutionLog, FileAsset, User, SystemConfig, EmailList, EmailListItem
+from models.database import SessionLocal, Schedule, Newsletter, ExecutionLog, FileAsset, User, SystemConfig, EmailList, EmailListItem, create_audit_log
 from fastapi import Request, HTTPException
 
 # Variables de entorno para autenticación
@@ -492,6 +492,7 @@ class SystemEngine:
         Returns:
             Dict con resultado de la ejecución
         """
+        db = SessionLocal()
         try:
             # Verificar si el modo prueba está activado
             is_test_mode = self._get_test_mode_from_db()
@@ -513,6 +514,24 @@ class SystemEngine:
                     'error': f'Newsletter no encontrado: {bulletin_name}',
                     'execution_id': f"{'test_' if is_test_mode else ''}{'manual' if manual else 'auto'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                 }
+            
+            # Auditoría: Inicio de ejecución (solo para automática, la manual ya se registra en api_server)
+            if not manual:
+                # Obtener usuario admin para auditoría de ejecuciones automáticas
+                admin_user = self._get_or_create_admin_user(db)
+                create_audit_log(
+                    entity_type="NEWSLETTER",
+                    entity_id=newsletter_info['newsletter'].newsletter_id,
+                    action="EXECUTE",
+                    performed_by=admin_user.user_id,
+                    session=db,
+                    new_value={
+                        "bulletin_name": bulletin_name,
+                        "manual": False,
+                        "triggered_by": "SYSTEM",
+                        "is_test_mode": is_test_mode
+                    }
+                )
             
             # Preparar configuración de ejecución
             execution_config = {
@@ -551,6 +570,24 @@ class SystemEngine:
             result['execution_id'] = execution_config['execution_id']
             result['is_test_mode'] = is_test_mode
             
+            # Auditoría: Resultado de la ejecución
+            if not manual:
+                admin_user = self._get_or_create_admin_user(db)
+                create_audit_log(
+                    entity_type="NEWSLETTER",
+                    entity_id=newsletter_info['newsletter'].newsletter_id,
+                    action="EXECUTE_RESULT",
+                    performed_by=admin_user.user_id,
+                    session=db,
+                    new_value={
+                        "bulletin_name": bulletin_name,
+                        "success": result['success'],
+                        "error": result.get('error', ''),
+                        "execution_id": result['execution_id'],
+                        "is_test_mode": is_test_mode
+                    }
+                )
+            
             # Log simple del resultado
             if result['success']:
                 mode_text = "🧪 PRUEBA" if is_test_mode else "✅"
@@ -565,14 +602,37 @@ class SystemEngine:
             is_test_mode = self._get_test_mode_from_db()
             self.logger.error(f"❌ {error_msg}", exc_info=True)
             
+            # Auditoría: Error en ejecución
+            if not manual:
+                try:
+                    admin_user = self._get_or_create_admin_user(db)
+                    newsletter_info = self._load_newsletter_info(bulletin_name)
+                    if newsletter_info:
+                        create_audit_log(
+                            entity_type="NEWSLETTER",
+                            entity_id=newsletter_info['newsletter'].newsletter_id,
+                            action="EXECUTE_ERROR",
+                            performed_by=admin_user.user_id,
+                            session=db,
+                            new_value={
+                                "bulletin_name": bulletin_name,
+                                "error": error_msg,
+                                "is_test_mode": is_test_mode
+                            }
+                        )
+                except:
+                    pass  # No fallar si no se puede registrar auditoría del error
+            
             return {
                 'success': False,
                 'error': error_msg,
                 'execution_id': f"{'test_' if is_test_mode else ''}{'manual' if manual else 'auto'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
                 'is_test_mode': is_test_mode
             }
+        finally:
+            db.close()
     
-    async def upload_bulletin(self, request: Request) -> Dict[str, Any]:
+    async def upload_bulletin(self, request: Request, user_id: str = None) -> Dict[str, Any]:
         """
         Procesa la carga de un nuevo boletín con todos sus archivos.
         
@@ -644,24 +704,48 @@ class SystemEngine:
                             'error': f'No existe una lista de correos con el ID "{email_list_id}". Por favor seleccione una lista válida.'
                         }
                 
+                # Obtener usuario para auditoría
+                if user_id:
+                    # Usar usuario autenticado
+                    from models.database import User
+                    user = db.query(User).filter(User.user_id == user_id).first()
+                    audit_user = user if user else admin_user
+                else:
+                    # Usar admin por defecto para cargas automáticas
+                    audit_user = admin_user
+                
                 # Crear newsletter
                 new_newsletter = Newsletter(
                     name=bulletin_name.strip(),
                     subject_line=f"Boletín: {bulletin_name.strip()}",
                     email_list_id=email_list_id if email_list_id and email_list_id.strip() else None,
-                    created_by=admin_user.user_id
+                    created_by=audit_user.user_id
                 )
                 db.add(new_newsletter)
                 db.commit()
                 db.refresh(new_newsletter)
                 
+                # Auditoría: Creación de boletín
+                create_audit_log(
+                    entity_type="NEWSLETTER",
+                    entity_id=new_newsletter.newsletter_id,
+                    action="CREATE",
+                    performed_by=audit_user.user_id,
+                    session=db,
+                    new_value={
+                        "name": bulletin_name.strip(),
+                        "subject_line": f"Boletín: {bulletin_name.strip()}",
+                        "email_list_id": email_list_id if email_list_id and email_list_id.strip() else None
+                    }
+                )
+                
                 # Guardar archivos
                 files_loaded = {
-                    'script': await self._save_script_file(db, script_file, bulletin_name, admin_user.user_id),
-                    'queries': await self._save_query_files(db, query_files, bulletin_name, admin_user.user_id),
-                    'template': await self._save_template_file(db, template_file, bulletin_name, admin_user.user_id),
-                    'email_template': await self._save_email_template_file(db, email_template_file, bulletin_name, admin_user.user_id),
-                    'images': await self._save_image_files(db, image_files, bulletin_name, admin_user.user_id)
+                    'script': await self._save_script_file(db, script_file, bulletin_name, audit_user.user_id),
+                    'queries': await self._save_query_files(db, query_files, bulletin_name, audit_user.user_id),
+                    'template': await self._save_template_file(db, template_file, bulletin_name, audit_user.user_id),
+                    'email_template': await self._save_email_template_file(db, email_template_file, bulletin_name, audit_user.user_id),
+                    'images': await self._save_image_files(db, image_files, bulletin_name, audit_user.user_id)
                 }
                 
                 # Crear schedule por defecto
@@ -673,6 +757,21 @@ class SystemEngine:
                 )
                 db.add(default_schedule)
                 db.commit()
+                
+                # Auditoría: Creación de schedule
+                create_audit_log(
+                    entity_type="SCHEDULE",
+                    entity_id=default_schedule.schedule_id,
+                    action="CREATE",
+                    performed_by=admin_user.user_id,
+                    session=db,
+                    new_value={
+                        "newsletter_id": new_newsletter.newsletter_id,
+                        "send_time": "09:00",
+                        "is_enabled": False,
+                        "timezone": "America/Bogota"
+                    }
+                )
                 
                 # Limpiar cache de scripts
                 self.scripts_cache.clear()

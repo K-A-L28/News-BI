@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.5">
     <title>Dashboard - Sistema de Boletines</title>
-    <link rel="stylesheet" href="/static/dashboard.css">
+    <link rel="stylesheet" href="/static/dashboard.css?v=1.1">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
@@ -36,6 +36,9 @@
                     </div>
                     <button class="action-btn tertiary" onclick="showSettings()">
                         <i class="fas fa-cog"></i>Configuración
+                    </button>
+                    <button class="action-btn secondary" onclick="downloadAuditLogs()" title="Descargar registros de auditoría">
+                        <i class="fas fa-download"></i> Auditoría
                     </button>
                     <button id="refresh-btn" class="btn-refresh">
                         <i class="fas fa-sync-alt"></i> Actualizar

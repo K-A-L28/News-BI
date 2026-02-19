@@ -18,7 +18,7 @@ import secrets
 from urllib.parse import urlencode
 
 # Importaciones del sistema
-from models.database import SessionLocal, Schedule, Newsletter, ExecutionLog, FileAsset, User, SystemConfig, EmailList, EmailListItem
+from models.database import SessionLocal, Schedule, Newsletter, ExecutionLog, FileAsset, User, SystemConfig, EmailList, EmailListItem, create_audit_log, AuditLog
 from sqlalchemy import extract
 from controllers.engine import SystemEngine
 from utils.encryption import env_encryptor
@@ -231,7 +231,16 @@ def authenticate_user():
                 )
             
             # Agregar usuario al request para uso en el endpoint
-            request.state.user = get_user_from_session(session_token).get("user")
+            session_data = get_user_from_session(session_token)
+            if session_data and session_data.get("user"):
+                request.state.user = session_data.get("user")
+                logger.debug(f"Usuario asignado: {request.state.user.get('email', 'Unknown')}")
+            else:
+                logger.error(f"❌ Error: No se pudo obtener usuario de la sesión. Token: {session_token[:8]}...")
+                raise HTTPException(
+                    status_code=401, 
+                    detail="Sesión inválida o expirada"
+                )
             return await func(request, *args, **kwargs)
         return wrapper
     return decorator
@@ -438,9 +447,33 @@ async def toggle_schedule(request: Request, schedule_id: str):
         if not schedule:
             raise HTTPException(status_code=404, detail="Schedule no encontrado")
         
+        # Guardar estado anterior para auditoría
+        old_enabled = schedule.is_enabled
+        
         # Alternar el estado
         schedule.is_enabled = not schedule.is_enabled
         db.commit()
+        
+        # Auditoría: Cambio de estado de schedule
+        try:
+            logger.info(f"🔍 Registrando auditoría TOGGLE_STATUS para schedule {schedule_id}")
+            logger.info(f"🔍 Usuario: {request.state.user.get('email', 'Unknown')}")
+            logger.info(f"🔍 Cambio: {old_enabled} -> {schedule.is_enabled}")
+            
+            create_audit_log(
+                entity_type="SCHEDULE",
+                entity_id=schedule_id,
+                action="TOGGLE_STATUS",
+                performed_by=request.state.user["user_id"],
+                session=db,
+                old_value={"is_enabled": old_enabled},
+                new_value={"is_enabled": schedule.is_enabled}
+            )
+            
+            logger.info(f"✅ Auditoría TOGGLE_STATUS registrada exitosamente")
+        except Exception as audit_error:
+            logger.error(f"❌ Error registrando auditoría: {str(audit_error)}")
+            # No fallar la operación principal si la auditoría falla
         
         return {
             "success": True,
@@ -469,15 +502,57 @@ async def delete_schedule(request: Request, schedule_id: str):
         # Buscar el newsletter asociado usando newsletter_id
         newsletter = db.query(Newsletter).filter(Newsletter.newsletter_id == schedule.newsletter_id).first()
         if newsletter:
+            # Auditoría: Eliminación de newsletter
+            create_audit_log(
+                entity_type="NEWSLETTER",
+                entity_id=newsletter.newsletter_id,
+                action="DELETE",
+                performed_by=request.state.user["user_id"],
+                session=db,
+                old_value={
+                    "name": newsletter.name,
+                    "subject_line": newsletter.subject_line,
+                    "email_list_id": newsletter.email_list_id
+                }
+            )
+            
             # Eliminar otros schedules relacionados con este newsletter
             other_schedules = db.query(Schedule).filter(Schedule.newsletter_id == newsletter.newsletter_id).all()
             for other_schedule in other_schedules:
+                # Auditoría: Eliminación de schedules relacionados
+                create_audit_log(
+                    entity_type="SCHEDULE",
+                    entity_id=other_schedule.schedule_id,
+                    action="DELETE",
+                    performed_by=request.state.user["user_id"],
+                    session=db,
+                    old_value={
+                        "newsletter_id": other_schedule.newsletter_id,
+                        "send_time": other_schedule.send_time.strftime('%H:%M'),
+                        "is_enabled": other_schedule.is_enabled,
+                        "timezone": other_schedule.timezone
+                    }
+                )
                 db.delete(other_schedule)
             
             # Eliminar el newsletter
             db.delete(newsletter)
         else:
-            # Si no hay newsletter, eliminar solo el schedule
+            # Si no hay newsletter, auditoría solo del schedule
+            create_audit_log(
+                entity_type="SCHEDULE",
+                entity_id=schedule_id,
+                action="DELETE",
+                performed_by=request.state.user["user_id"],
+                session=db,
+                old_value={
+                    "newsletter_id": schedule.newsletter_id,
+                    "send_time": schedule.send_time.strftime('%H:%M'),
+                    "is_enabled": schedule.is_enabled,
+                    "timezone": schedule.timezone
+                }
+            )
+            # Eliminar solo el schedule
             db.delete(schedule)
         
         db.commit()
@@ -499,7 +574,22 @@ async def delete_schedule(request: Request, schedule_id: str):
 @authenticate_user()
 async def execute_report(http_request: Request, request: ExecuteRequest):
     """API para ejecutar un reporte manualmente"""
+    db = SessionLocal()
     try:
+        # Auditoría: Inicio de ejecución manual
+        create_audit_log(
+            entity_type="NEWSLETTER",
+            entity_id=request.boletin,
+            action="EXECUTE",
+            performed_by=http_request.state.user["user_id"],
+            session=db,
+            new_value={
+                "bulletin_name": request.boletin,
+                "manual": True,
+                "triggered_by": "USER"
+            }
+        )
+        
         # Usar el engine del sistema
         result = system_engine.execute_bulletin(request.boletin, manual=True)
         
@@ -525,13 +615,16 @@ async def execute_report(http_request: Request, request: ExecuteRequest):
             'message': f'Error: {str(e)}',
             'execution_id': f"manual_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         }
+    finally:
+        db.close()
 
 @app.post("/api/upload-bulletin")
+@authenticate_user()
 async def upload_bulletin(request: Request):
     """API para cargar un nuevo boletín con sus archivos"""
     try:
         # Usar el engine del sistema para procesar la carga
-        result = await system_engine.upload_bulletin(request)
+        result = await system_engine.upload_bulletin(request, request.state.user["user_id"])
         
         if result['success']:
             return result
@@ -596,13 +689,29 @@ async def get_schedule(schedule_id: str):
         db.close()
 
 @app.put("/api/schedule/{schedule_id}")
-async def update_schedule(schedule_id: str, request: Request):
+@authenticate_user()
+async def update_schedule(request: Request, schedule_id: str):
     """API para actualizar una tarea programada"""
     db = SessionLocal()
     try:
         schedule = db.query(Schedule).filter(Schedule.schedule_id == schedule_id).first()
         if not schedule:
             raise HTTPException(status_code=404, detail="Tarea no encontrada")
+        
+        # Guardar valores anteriores para auditoría
+        old_values = {
+            "newsletter_id": schedule.newsletter_id,
+            "send_time": schedule.send_time.strftime('%H:%M'),
+            "is_enabled": schedule.is_enabled,
+            "timezone": schedule.timezone
+        }
+        
+        # Obtener newsletter anterior para auditoría completa
+        old_newsletter = db.query(Newsletter).filter(Newsletter.newsletter_id == schedule.newsletter_id).first()
+        old_template = old_newsletter.html_template if old_newsletter else None
+        old_email_list_id = old_newsletter.email_list_id if old_newsletter else None
+        old_newsletter_name = old_newsletter.name if old_newsletter else None
+        old_newsletter_subject = old_newsletter.subject_line if old_newsletter else None
         
         # Parse form data
         form_data = await request.form()
@@ -625,25 +734,33 @@ async def update_schedule(schedule_id: str, request: Request):
         # Parse hour
         try:
             hour, minute = map(int, send_time.split(':'))
-            schedule.send_time = time(hour, minute)
+            new_send_time = time(hour, minute)
         except ValueError:
             raise HTTPException(status_code=400, detail="Formato de hora inválido. Use HH:MM")
         
         # Update basic schedule fields
         schedule.newsletter_id = newsletter_id
+        schedule.send_time = new_send_time
         schedule.is_enabled = is_enabled
         schedule.timezone = timezone
         schedule.updated_at = datetime.utcnow()
         
         # Update email list if provided
+        new_email_list_id = None
+        new_newsletter_name = None
+        new_newsletter_subject = None
         if email_list_id:
             # Update newsletter's email list
             newsletter = db.query(Newsletter).filter(Newsletter.newsletter_id == newsletter_id).first()
             if newsletter:
                 newsletter.email_list_id = email_list_id
                 newsletter.updated_at = datetime.utcnow()
+                new_email_list_id = email_list_id
+                new_newsletter_name = newsletter.name
+                new_newsletter_subject = newsletter.subject_line
         
         # Handle email template upload
+        new_template = None
         if email_template_file and email_template_file.filename:
             try:
                 template_content = await email_template_file.read()
@@ -652,9 +769,13 @@ async def update_schedule(schedule_id: str, request: Request):
                 # Update newsletter's HTML template
                 newsletter = db.query(Newsletter).filter(Newsletter.newsletter_id == newsletter_id).first()
                 if newsletter:
-                    old_template = newsletter.html_template
                     newsletter.html_template = template_content
                     newsletter.updated_at = datetime.utcnow()
+                    new_template = template_content
+                    if not new_newsletter_name:
+                        new_newsletter_name = newsletter.name
+                    if not new_newsletter_subject:
+                        new_newsletter_subject = newsletter.subject_line
                 else:
                     raise HTTPException(status_code=404, detail="Newsletter no encontrado")
                     
@@ -663,6 +784,7 @@ async def update_schedule(schedule_id: str, request: Request):
                 raise HTTPException(status_code=400, detail=f"Error procesando plantilla: {str(e)}")
         
         # Handle email CSV upload
+        new_email_list_name = None
         if email_csv_file and email_csv_file.filename:
             try:
                 csv_content = await email_csv_file.read()
@@ -691,7 +813,7 @@ async def update_schedule(schedule_id: str, request: Request):
                         created_by=admin_user.user_id
                     )
                     db.add(new_list)
-                    db.flush()  # Get the ID without committing
+                    db.flush()  # Get ID without committing
                     
                     new_list_id = new_list.list_id
                     
@@ -705,9 +827,10 @@ async def update_schedule(schedule_id: str, request: Request):
                     
                     # Update newsletter to use new list
                     newsletter = db.query(Newsletter).filter(Newsletter.newsletter_id == newsletter_id).first()
-                    if email_list_id:
+                    if newsletter:
                         newsletter.email_list_id = new_list_id
                         newsletter.updated_at = datetime.utcnow()
+                        new_email_list_id = new_list_id
                     
             except Exception as e:
                 logger.error(f"Error procesando CSV de correos: {str(e)}")
@@ -715,6 +838,78 @@ async def update_schedule(schedule_id: str, request: Request):
         
         db.commit()
         db.refresh(schedule)
+        
+        # Auditoría: Actualización de schedule
+        new_values = {
+            "newsletter_id": newsletter_id,
+            "send_time": send_time,
+            "is_enabled": is_enabled,
+            "timezone": timezone
+        }
+        
+        # Solo registrar auditoría si hubo cambios en el schedule
+        if old_values != new_values:
+            create_audit_log(
+                entity_type="SCHEDULE",
+                entity_id=schedule_id,
+                action="UPDATE",
+                performed_by=request.state.user["user_id"],
+                session=db,
+                old_value=old_values,
+                new_value=new_values
+            )
+        
+        # Auditoría: Edición completa del boletín (newsletter)
+        # Solo registrar si hubo cambios en el newsletter
+        newsletter_changed = False
+        newsletter_old_values = {}
+        newsletter_new_values = {}
+        
+        if old_newsletter_name != new_newsletter_name:
+            newsletter_old_values["name"] = old_newsletter_name
+            newsletter_new_values["name"] = new_newsletter_name
+            newsletter_changed = True
+            
+        if old_newsletter_subject != new_newsletter_subject:
+            newsletter_old_values["subject_line"] = old_newsletter_subject
+            newsletter_new_values["subject_line"] = new_newsletter_subject
+            newsletter_changed = True
+            
+        if old_template != new_template:
+            newsletter_old_values["html_template"] = "[PLANTILLA ANTERIOR]" if old_template else None
+            newsletter_new_values["html_template"] = "[PLANTILLA NUEVA]" if new_template else None
+            newsletter_changed = True
+            
+        if old_email_list_id != new_email_list_id:
+            newsletter_old_values["email_list_id"] = old_email_list_id
+            newsletter_new_values["email_list_id"] = new_email_list_id
+            newsletter_changed = True
+            
+        if newsletter_changed:
+            create_audit_log(
+                entity_type="NEWSLETTER",
+                entity_id=newsletter_id,
+                action="UPDATE",
+                performed_by=request.state.user["user_id"],
+                session=db,
+                old_value=newsletter_old_values if newsletter_old_values else None,
+                new_value=newsletter_new_values if newsletter_new_values else None
+            )
+        
+        # Auditoría: Creación de nueva lista de correos si se importó CSV
+        if new_email_list_name:
+            create_audit_log(
+                entity_type="EMAIL_LIST",
+                entity_id=new_email_list_id,
+                action="CREATE",
+                performed_by=request.state.user["user_id"],
+                session=db,
+                new_value={
+                    "list_name": new_email_list_name,
+                    "description": f"Lista de correos importada para newsletter {newsletter_id}",
+                    "email_count": len(emails) if 'emails' in locals() else 0
+                }
+            )
         
         return {
             'success': True,
@@ -769,24 +964,56 @@ async def set_allowed_domains(request: Request):
             SystemConfig.config_key == 'allowed_domains'
         ).first()
         
+        old_value = existing_config.config_value if existing_config else ''
+        new_value = allowed_domains.strip()
+        
+        # Solo registrar auditoría si el valor realmente cambió
         if existing_config:
-            # Actualizar existente
-            existing_config.config_value = allowed_domains.strip()
-            existing_config.updated_at = datetime.utcnow()
-            existing_config.updated_by = admin_user.user_id
+            # Verificar si el valor cambió
+            if old_value != new_value:
+                # Actualizar existente
+                existing_config.config_value = new_value
+                existing_config.updated_at = datetime.utcnow()
+                existing_config.updated_by = admin_user.user_id
+                
+                # Auditoría: Cambio en configuración de dominios permitidos
+                create_audit_log(
+                    entity_type="SYSTEM_CONFIG",
+                    entity_id="allowed_domains",
+                    action="UPDATE",
+                    performed_by=admin_user.user_id,
+                    session=db,
+                    old_value={"allowed_domains": old_value},
+                    new_value={"allowed_domains": new_value}
+                )
+                
+                logger.info(f"🌐 Dominios permitidos actualizados: {new_value}")
+            else:
+                logger.debug(f"🌐 Dominios permitidos sin cambios: {new_value}")
         else:
-            # Crear nueva configuración
+            # Crear nueva configuración (siempre se registra como cambio)
             new_config = SystemConfig(
                 config_key='allowed_domains',
-                config_value=allowed_domains.strip(),
+                config_value=new_value,
                 config_type='string',
                 description='Dominios permitidos para correos electrónicos (separados por coma)'
             )
             db.add(new_config)
+            
+            # Auditoría: Creación de configuración de dominios permitidos
+            create_audit_log(
+                entity_type="SYSTEM_CONFIG",
+                entity_id="allowed_domains",
+                action="CREATE",
+                performed_by=admin_user.user_id,
+                session=db,
+                old_value=None,
+                new_value={"allowed_domains": new_value}
+            )
+            
+            logger.info(f"🌐 Dominios permitidos creados: {new_value}")
         
         db.commit()
-        
-        logger.info(f"🌐 Dominios permitidos actualizados: {allowed_domains}")
         
         return {
             'success': True,
@@ -836,6 +1063,8 @@ async def set_test_mode(request: Request):
         # Buscar configuración existente
         existing_config = db.query(SystemConfig).filter(SystemConfig.config_key == 'is_test_mode').first()
         
+        old_value = existing_config.config_value if existing_config else 'false'
+        
         if existing_config:
             # Actualizar existente
             existing_config.config_value = str(is_test_mode).lower()
@@ -847,17 +1076,24 @@ async def set_test_mode(request: Request):
                 config_key='is_test_mode',
                 config_value=str(is_test_mode).lower(),
                 config_type='boolean',
-                description='Modo prueba para enviar correos solo a dirección de prueba'
+                description='Modo prueba para envío de correos'
             )
             db.add(new_config)
         
         db.commit()
         
-        # Logger claro y visible del cambio de modo prueba
-        if is_test_mode:
-            logger.info("🧪 MODO PRUEBA ACTIVADO - Todos los correos se enviarán a: k.acevedo@clinicassanrafael.com")
-        else:
-            logger.info("✅ MODO PRUEBA DESACTIVADO - Los correos se enviarán a destinatarios reales")
+        # Auditoría: Cambio en configuración de modo prueba
+        create_audit_log(
+            entity_type="SYSTEM_CONFIG",
+            entity_id="is_test_mode",
+            action="UPDATE",
+            performed_by=admin_user.user_id,
+            session=db,
+            old_value={"is_test_mode": old_value},
+            new_value={"is_test_mode": str(is_test_mode).lower()}
+        )
+        
+        logger.info(f"🧪 Modo prueba {'activado' if is_test_mode else 'desactivado'}")
         
         return {
             'success': True,
@@ -866,9 +1102,9 @@ async def set_test_mode(request: Request):
         }
         
     except Exception as e:
-        logger.error(f"Error guardando modo prueba: {str(e)}")
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error guardando modo prueba: {str(e)}")
+        logger.error(f"Error configurando modo prueba: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error configurando modo prueba: {str(e)}")
     finally:
         db.close()
 
@@ -944,13 +1180,22 @@ async def save_settings(request: Request):
                 # Buscar configuración existente
                 existing_config = db.query(SystemConfig).filter(SystemConfig.config_key == key).first()
                 
+                # Guardar valor anterior para auditoría
+                old_value = existing_config.config_value if existing_config else None
+                
+                # Solo registrar auditoría si el valor realmente cambió
+                value_changed = False
+                
                 if existing_config:
-                    # Actualizar existente
-                    existing_config.config_value = str_value
-                    existing_config.updated_at = datetime.utcnow()
-                    existing_config.updated_by = admin_user.user_id
+                    # Verificar si el valor cambió
+                    if old_value != str_value:
+                        # Actualizar existente
+                        existing_config.config_value = str_value
+                        existing_config.updated_at = datetime.utcnow()
+                        existing_config.updated_by = admin_user.user_id
+                        value_changed = True
                 else:
-                    # Crear nueva
+                    # Crear nueva configuración (siempre se registra como cambio)
                     new_config = SystemConfig(
                         config_key=key,
                         config_value=str_value,
@@ -959,6 +1204,24 @@ async def save_settings(request: Request):
                         created_by=admin_user.user_id
                     )
                     db.add(new_config)
+                    value_changed = True
+                
+                # Solo registrar auditoría si hubo cambios reales
+                if value_changed:
+                    # Auditoría: Cambio en configuración del sistema
+                    create_audit_log(
+                        entity_type="SYSTEM_CONFIG",
+                        entity_id=key,
+                        action="UPDATE",
+                        performed_by=admin_user.user_id,
+                        session=db,
+                        old_value={key: old_value} if old_value else None,
+                        new_value={key: str_value if str_value else None}
+                    )
+                    
+                    logger.info(f"⚙️ Configuración actualizada: {key} = {str_value}")
+                else:
+                    logger.debug(f"⚙️ Configuración sin cambios: {key} = {str_value}")
             else:
                 logger.warning(f"Configuración no permitida: {key}")
         
@@ -1094,6 +1357,7 @@ async def get_execution_status(log_id: str):
 
 # Endpoints para gestión de listas de correos
 @app.post("/api/email-lists", response_model=dict)
+@authenticate_user()
 async def create_email_list(request: EmailListRequest):
     """Crear una nueva lista de correos desde CSV"""
     db = SessionLocal()
@@ -1144,7 +1408,7 @@ async def create_email_list(request: EmailListRequest):
             description=request.description,
             max_recipients=request.max_recipients or 100,
             email_count=len(valid_emails),
-            created_by="system_admin"  # TODO: Obtener del usuario autenticado
+            created_by=request.state.user["user_id"]  # Usar usuario autenticado
         )
         db.add(email_list)
         db.flush()  # Para obtener el ID
@@ -1158,6 +1422,21 @@ async def create_email_list(request: EmailListRequest):
             db.add(email_item)
         
         db.commit()
+        
+        # Auditoría: Creación de lista de correos
+        create_audit_log(
+            entity_type="EMAIL_LIST",
+            entity_id=email_list.list_id,
+            action="CREATE",
+            performed_by=request.state.user["user_id"],
+            session=db,
+            new_value={
+                "list_name": request.list_name,
+                "description": request.description,
+                "email_count": len(valid_emails),
+                "max_recipients": request.max_recipients or 100
+            }
+        )
         
         # Construir mensaje con notificación de correos rechazados si hay
         message = f"Lista '{request.list_name}' creada exitosamente con {len(valid_emails)} correos"
@@ -1220,7 +1499,8 @@ async def get_email_lists():
         db.close()
 
 @app.delete("/api/email-lists/{list_id}")
-async def delete_email_list(list_id: str):
+@authenticate_user()
+async def delete_email_list(request: Request, list_id: str):
     """Eliminar una lista de correos"""
     db = SessionLocal()
     try:
@@ -1228,8 +1508,26 @@ async def delete_email_list(list_id: str):
         if not email_list:
             raise HTTPException(status_code=404, detail="Lista no encontrada")
         
+        # Guardar información para auditoría antes de eliminar
+        audit_data = {
+            "list_name": email_list.list_name,
+            "description": email_list.description,
+            "email_count": email_list.email_count,
+            "max_recipients": email_list.max_recipients
+        }
+        
         db.delete(email_list)
         db.commit()
+        
+        # Auditoría: Eliminación de lista de correos
+        create_audit_log(
+            entity_type="EMAIL_LIST",
+            entity_id=list_id,
+            action="DELETE",
+            performed_by=request.state.user["user_id"],
+            session=db,
+            old_value=audit_data
+        )
         
         return {
             'success': True,
@@ -1370,6 +1668,20 @@ async def microsoft_callback(request: Request):
             
             db.commit()
             
+            # Auditoría: Login exitoso
+            create_audit_log(
+                entity_type="USER",
+                entity_id=user.user_id,
+                action="LOGIN",
+                performed_by=user.user_id,  # Usar el ID real del usuario
+                session=db,
+                new_value={
+                    "email": user.email,
+                    "full_name": user.full_name,
+                    "login_method": "MICROSOFT_OAUTH2"
+                }
+            )
+            
             # Crear sesión de usuario
             session_token = create_user_session({
                 'user_id': user.user_id,
@@ -1415,13 +1727,39 @@ async def microsoft_logout(request: Request):
         # Obtener token de sesión de la cookie
         session_token = request.cookies.get("session_token")
         
+        user_id = None
+        user_email = None
+        
         if session_token:
             # Eliminar sesión
-            SESSION_STORE.pop(session_token, None)
+            session_data = SESSION_STORE.pop(session_token, None)
             
-            # Obtener usuario para logging
-            session = get_user_from_session(session_token)
-            if session and session.get("user"):
+            # Obtener usuario para auditoría
+            if session_data and session_data.get("user"):
+                user_info = session_data["user"]
+                user_id = user_info.get("user_id")
+                user_email = user_info.get("email")
+                
+                # Auditoría: Logout
+                db = SessionLocal()
+                try:
+                    create_audit_log(
+                        entity_type="USER",
+                        entity_id=user_id,
+                        action="LOGOUT",
+                        performed_by=user_id,
+                        session=db,
+                        new_value={
+                            "email": user_email,
+                            "logout_method": "MANUAL"
+                        }
+                    )
+                    db.commit()
+                except Exception as e:
+                    logger.error(f"Error registrando auditoría de logout: {str(e)}")
+                finally:
+                    db.close()
+                
                 # Cierre de sesión (no mostrar datos sensibles)
                 logger.info("Sesión de usuario cerrada")
         
@@ -1463,6 +1801,119 @@ async def microsoft_logout(request: Request):
         )
         
         return response
+
+@app.get("/api/audit/download")
+@authenticate_user()
+async def download_audit_logs(request: Request):
+    """Descargar todos los registros de auditoría en formato CSV"""
+    db = SessionLocal()
+    try:
+        # Obtener todos los registros de auditoría con información del usuario
+        audit_logs = db.query(AuditLog, User).join(User, AuditLog.performed_by == User.user_id).order_by(AuditLog.performed_at.desc()).all()
+        
+        # Crear contenido CSV
+        import csv
+        import io
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Escribir encabezados
+        writer.writerow([
+            'ID Auditoría',
+            'Fecha y Hora',
+            'Tipo Entidad',
+            'Entidad',
+            'Acción',
+            'Usuario',
+            'Email Usuario',
+            'Valor Anterior',
+            'Nuevo Valor'
+        ])
+        
+        # Escribir datos
+        for audit_log, user in audit_logs:
+            # Convertir valores JSON a string para CSV
+            old_value = str(audit_log.old_value) if audit_log.old_value else ''
+            new_value = str(audit_log.new_value) if audit_log.new_value else ''
+            
+            # Limpiar valores para CSV (reemplazar saltos de línea)
+            old_value = old_value.replace('\n', ' ').replace('\r', ' ')
+            new_value = new_value.replace('\n', ' ').replace('\r', ' ')
+            
+            # Obtener nombre descriptivo para la entidad
+            entity_description = audit_log.entity_id
+            if audit_log.entity_type == 'NEWSLETTER':
+                # Buscar el nombre del boletín
+                newsletter = db.query(Newsletter).filter(Newsletter.newsletter_id == audit_log.entity_id).first()
+                if newsletter:
+                    entity_description = f"{newsletter.name} (ID: {audit_log.entity_id})"
+                else:
+                    entity_description = f"Boletín eliminado (ID: {audit_log.entity_id})"
+            elif audit_log.entity_type == 'SCHEDULE':
+                # Buscar nombre del boletín asociado al schedule
+                schedule = db.query(Schedule).filter(Schedule.schedule_id == audit_log.entity_id).first()
+                if schedule and schedule.newsletter:
+                    newsletter = db.query(Newsletter).filter(Newsletter.newsletter_id == schedule.newsletter_id).first()
+                    if newsletter:
+                        entity_description = f"{newsletter.name} (Schedule ID: {audit_log.entity_id})"
+                    else:
+                        entity_description = f"Schedule (ID: {audit_log.entity_id})"
+                else:
+                    entity_description = f"Schedule (ID: {audit_log.entity_id})"
+            elif audit_log.entity_type == 'USER':
+                entity_description = f"{user.full_name if user else 'N/A'} (ID: {audit_log.entity_id})"
+            elif audit_log.entity_type == 'SYSTEM_CONFIG':
+                config_names = {
+                    'emailRemitente': 'Email Remitente',
+                    'piePagina': 'Pie de Página',
+                    'limiteCorreos': 'Límite de Correos',
+                    'allowed_domains': 'Dominios Permitidos',
+                    'is_test_mode': 'Modo Prueba'
+                }
+                config_name = config_names.get(audit_log.entity_id, audit_log.entity_id)
+                entity_description = f"{config_name} (ID: {audit_log.entity_id})"
+            else:
+                entity_description = f"{audit_log.entity_type} (ID: {audit_log.entity_id})"
+            
+            writer.writerow([
+                audit_log.audit_id,
+                audit_log.performed_at.strftime('%Y-%m-%d %H:%M:%S') if audit_log.performed_at else '',
+                audit_log.entity_type,
+                entity_description,
+                audit_log.action,
+                user.full_name if user else 'N/A',
+                user.email if user else 'N/A',
+                old_value,
+                new_value
+            ])
+        
+        # Preparar respuesta
+        csv_content = output.getvalue()
+        output.close()
+        
+        # Crear respuesta con el archivo CSV
+        from fastapi.responses import StreamingResponse
+        import io
+        
+        # Crear archivo en memoria
+        csv_file = io.BytesIO(csv_content.encode('utf-8'))
+        
+        # Generar nombre de archivo con fecha
+        from datetime import datetime
+        filename = f"audit_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        
+        return StreamingResponse(
+            io.BytesIO(csv_content.encode('utf-8')),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        logger.error(f"Error generando CSV de auditoría: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error generando archivo de auditoría")
+    finally:
+        db.close()
 
 @app.get("/api/auth/me")
 async def get_current_user(request: Request):
@@ -1588,9 +2039,55 @@ async def get_credentials():
         logger.error(f"Error obteniendo credenciales: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error obteniendo credenciales: {str(e)}")
 
+@app.post("/api/test-audit")
+@authenticate_user()
+async def test_audit(request: Request):
+    """Endpoint de prueba para generar auditoría"""
+    db = SessionLocal()
+    try:
+        # Verificar información del usuario
+        user_info = {
+            "user_id": request.state.user.get("user_id") if hasattr(request.state, 'user') and request.state.user else None,
+            "email": request.state.user.get("email") if hasattr(request.state, 'user') and request.state.user else None,
+            "full_name": request.state.user.get("full_name") if hasattr(request.state, 'user') and request.state.user else None
+        }
+        
+        # Crear auditoría de prueba
+        create_audit_log(
+            entity_type="TEST",
+            entity_id="test_endpoint",
+            action="CREATE",
+            performed_by=user_info["user_id"],
+            session=db,
+            new_value={
+                "message": "Prueba de auditoría",
+                "user_info": user_info,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+        db.commit()
+        
+        return {
+            "success": True, 
+            "message": "Auditoría de prueba creada",
+            "user_info": user_info
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error en prueba de auditoría: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "user_info": user_info if 'user_info' in locals() else None
+        }
+    finally:
+        db.close()
+
 @app.post("/api/credentials")
+@authenticate_user()
 async def update_credentials(request: CredentialsUpdateRequest):
     """API para actualizar credenciales del archivo .env (encriptar y guardar)"""
+    db = SessionLocal()
     try:
         env_path = os.path.join(os.getcwd(), '.env')
         
@@ -1599,6 +2096,30 @@ async def update_credentials(request: CredentialsUpdateRequest):
         
         if not success:
             raise HTTPException(status_code=500, detail="Error guardando credenciales")
+        
+        # Auditoría: Actualización de credenciales
+        # Ocultar valores sensibles en el registro de auditoría
+        safe_credentials = {}
+        sensitive_keys = ['PASSWORD', 'SECRET', 'KEY', 'TOKEN']
+        
+        for key, value in request.credentials.items():
+            if any(sensitive in key.upper() for sensitive in sensitive_keys) and value:
+                # Mostrar solo primeros 4 caracteres + asteriscos
+                safe_credentials[key] = value[:4] + '*' * (len(value) - 4) if len(value) > 4 else '*' * len(value)
+            else:
+                safe_credentials[key] = value
+        
+        create_audit_log(
+            entity_type="SYSTEM_CONFIG",
+            entity_id="credentials",
+            action="UPDATE_CREDENTIALS",
+            performed_by=request.state.user["user_id"],
+            session=db,
+            new_value={
+                "updated_keys": list(request.credentials.keys()),
+                "credentials": safe_credentials
+            }
+        )
         
         logger.info("✅ Credenciales actualizadas y encriptadas exitosamente")
         
@@ -1610,8 +2131,11 @@ async def update_credentials(request: CredentialsUpdateRequest):
     except HTTPException:
         raise
     except Exception as e:
+        db.rollback()
         logger.error(f"Error actualizando credenciales: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error actualizando credenciales: {str(e)}")
+    finally:
+        db.close()
 
 @app.get("/api/credentials/raw")
 async def get_raw_credentials():

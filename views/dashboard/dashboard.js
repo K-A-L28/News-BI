@@ -2,6 +2,16 @@
 
 let dashboard = null;
 
+// Función global para descargar auditoría - definida al principio para que esté disponible inmediatamente
+function downloadAuditLogs() {
+    if (window.dashboard && typeof window.dashboard.downloadAuditLogs === 'function') {
+        window.dashboard.downloadAuditLogs();
+    } else {
+        console.error('Dashboard no inicializado');
+        alert('Error: El dashboard no está completamente cargado. Por favor espere un momento y reintente.');
+    }
+}
+
 document.addEventListener('change', (e) => {
     if (e && e.target && e.target.id === 'estado-filter') {
         if (window.dashboard && typeof window.dashboard.filtrarProximos === 'function') {
@@ -2260,4 +2270,54 @@ Dashboard.prototype.escapeHtml = function(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+};
+
+// Método para descargar registros de auditoría
+Dashboard.prototype.downloadAuditLogs = async function() {
+    try {
+        // Mostrar indicador de carga
+        this.showToast('Preparando descarga de auditoría...', 'info');
+        
+        // Realizar la petición para descargar el CSV
+        const response = await fetch('/api/audit/download', {
+            method: 'GET',
+            credentials: 'include'
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Error descargando registros de auditoría');
+        }
+        
+        // Obtener el nombre del archivo desde los headers
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = 'audit_logs.csv';
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+            if (filenameMatch) {
+                filename = filenameMatch[1];
+            }
+        }
+        
+        // Convertir la respuesta a blob y descargar
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        
+        // Crear un enlace temporal para la descarga
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        
+        // Limpiar
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        this.showToast('Archivo de auditoría descargado exitosamente', 'success');
+        
+    } catch (error) {
+        console.error('Error descargando auditoría:', error);
+        this.showToast(error.message || 'Error descargando registros de auditoría', 'error');
+    }
 };

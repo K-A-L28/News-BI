@@ -1,9 +1,12 @@
 import uuid
-from datetime import datetime
-from sqlalchemy import create_engine, Column, String, Integer, Boolean, ForeignKey, DateTime, Text, Time, JSON, Enum
+from datetime import datetime, time
+from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey, JSON, Text, Enum as SQLEnum, Time
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
-import enum
+from sqlalchemy.orm import relationship
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from enum import Enum
+from utils.timezone_config import get_local_now
 
 # Configuración de SQLite
 DATABASE_URL = "sqlite:///boletines_v2.db"
@@ -16,7 +19,7 @@ def generate_uuid():
 
 # --- ENUMS ---
 
-class UserRole(enum.Enum):
+class UserRole(Enum):
     SUPER_ADMIN = "SUPER_ADMIN"
     ADMIN = "ADMIN"
     USER = "USER"
@@ -28,7 +31,7 @@ class User(Base):
     user_id = Column(String, primary_key=True, default=generate_uuid)
     email = Column(String, unique=True, nullable=False, index=True)  # Email de Microsoft
     full_name = Column(String, nullable=False)  # Nombre completo de Microsoft
-    role = Column(Enum(UserRole), default=UserRole.USER, nullable=False)
+    role = Column(SQLEnum(UserRole), default=UserRole.USER, nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
@@ -216,6 +219,32 @@ def can_manage_roles(user_id: str, session):
     """
     user = session.query(User).filter(User.user_id == user_id).first()
     return user and user.role == UserRole.SUPER_ADMIN
+
+def create_audit_log(entity_type: str, entity_id: str, action: str, performed_by: str, session, old_value=None, new_value=None):
+    """
+    Crea un registro de auditoría para cualquier acción del sistema.
+    
+    Args:
+        entity_type: Tipo de entidad (NEWSLETTER, SCHEDULE, USER, etc.)
+        entity_id: ID de la entidad afectada
+        action: Acción realizada (CREATE, UPDATE, DELETE, LOGIN, etc.)
+        performed_by: ID del usuario que realizó la acción
+        session: Sesión de base de datos
+        old_value: Valor anterior (JSON serializable)
+        new_value: Nuevo valor (JSON serializable)
+    """
+    audit_log = AuditLog(
+        entity_type=entity_type,
+        entity_id=entity_id,
+        action=action,
+        performed_by=performed_by,
+        performed_at=get_local_now(),  # Usar hora local correcta
+        old_value=old_value,
+        new_value=new_value
+    )
+    session.add(audit_log)
+    session.commit()  # ¡Importante! Guardar el registro en la base de datos
+    return audit_log
 
 # Función para crear la base de datos
 def init_db():
