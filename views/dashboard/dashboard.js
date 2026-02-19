@@ -650,7 +650,7 @@ class Dashboard {
             ${logs ? `
             <div class="detail-item">
                 <label>Logs de Ejecución:</label>
-                <textarea class="form-control" rows="10" readonly style="font-family: monospace; font-size: 12px;">${logs}</textarea>
+                <textarea class="form-control" rows="10" readonly style="font-family: monospace; font-size: 1.2rem;">${logs}</textarea>
             </div>
             ` : ''}
             <div class="form-actions">
@@ -1645,30 +1645,31 @@ style.textContent = `
     
     .form-group label {
         display: block;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.8rem;
         font-weight: 500;
         color: var(--text-primary);
+        font-size: 1.6rem;
     }
     
     .form-control {
         width: 100%;
-        padding: 0.5rem;
+        padding: 0.8rem 1.2rem;
         border: 1px solid var(--border-color);
         border-radius: 0.375rem;
-        font-size: 0.875rem;
+        font-size: 1.6rem;
     }
     
     .form-actions {
         display: flex;
         gap: 0.5rem;
         justify-content: flex-end;
-        margin-top: 1.5rem;
+        margin-top: 1.8rem;
     }
     
     .btn-primary, .btn-secondary {
-        padding: 0.5rem 1rem;
+        padding: 0.8rem 1.6rem;
         border-radius: 0.375rem;
-        font-size: 0.875rem;
+        font-size: 1.6rem;
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -1713,10 +1714,11 @@ style.textContent = `
     .detail-item label {
         font-weight: 500;
         color: var(--text-secondary);
+        font-size: 1.4rem;
     }
     
     .logs-container {
-        max-height: 300px;
+        max-height: 30rem;
         overflow-y: auto;
         border: 1px solid var(--border-color);
         border-radius: 0.375rem;
@@ -1726,19 +1728,19 @@ style.textContent = `
     .log-entry {
         display: flex;
         gap: 0.5rem;
-        padding: 0.25rem 0;
+        padding: 0.4rem 0;
         font-family: monospace;
-        font-size: 0.75rem;
+        font-size: 1.2rem;
         border-bottom: 1px solid var(--border-color);
     }
     
     .log-time {
         color: var(--text-secondary);
-        min-width: 150px;
+        min-width: 15rem;
     }
     
     .log-level {
-        min-width: 60px;
+        min-width: 6rem;
         font-weight: bold;
     }
     
@@ -1774,7 +1776,7 @@ style.textContent = `
     .confirmation-message p:last-child {
         margin-bottom: 0;
         color: var(--text-secondary);
-        font-size: 0.9rem;
+        font-size: 1.3rem;
     }
     
     .table-controls {
@@ -1795,7 +1797,7 @@ style.textContent = `
     }
     
     .date-filter label {
-        font-size: 0.875rem;
+        font-size: 1.4rem;
         font-weight: 500;
         color: var(--text-secondary);
         white-space: nowrap;
@@ -1805,10 +1807,10 @@ style.textContent = `
         border: none;
         background: transparent;
         color: var(--text-primary);
-        font-size: 0.875rem;
-        padding: 0.25rem;
+        font-size: 1.4rem;
+        padding: 0.4rem;
         outline: none;
-        min-width: 120px;
+        min-width: 12rem;
     }
     
     .date-filter input[type="date"]::-webkit-calendar-picker-indicator {

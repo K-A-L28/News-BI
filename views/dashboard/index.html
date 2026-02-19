@@ -2,9 +2,9 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.5">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - Sistema de Boletines</title>
-    <link rel="stylesheet" href="/static/dashboard.css?v=1.1">
+    <link rel="stylesheet" href="/static/dashboard.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
@@ -20,6 +20,10 @@
                     <span id="current-time" class="time"></span>
                 </div>
                 <div class="header-info">
+                    <!-- Indicador de Modo Prueba -->
+                    <div id="test-mode-indicator" class="test-mode-indicator" style="display: none;" title="Modo Prueba Activado">
+                        <i class="fas fa-flask"></i>
+                    </div>
                     <!-- Información del Usuario -->
                     <div class="user-info">
                         <div class="user-details">
@@ -30,19 +34,6 @@
                             <i class="fas fa-sign-out-alt"></i>
                         </button>
                     </div>
-                    <!-- Indicador de Modo Prueba -->
-                    <div id="test-mode-indicator" class="test-mode-indicator" style="display: none;" title="Modo Prueba Activado">
-                        <i class="fas fa-flask"></i>
-                    </div>
-                    <button class="action-btn tertiary" onclick="showSettings()">
-                        <i class="fas fa-cog"></i>Configuración
-                    </button>
-                    <button class="action-btn secondary" onclick="downloadAuditLogs()" title="Descargar registros de auditoría">
-                        <i class="fas fa-download"></i> Auditoría
-                    </button>
-                    <button id="refresh-btn" class="btn-refresh">
-                        <i class="fas fa-sync-alt"></i> Actualizar
-                    </button>
                 </div>
                 
             </div>
@@ -50,9 +41,26 @@
 
         <!-- Main Content -->
         <main class="main-content">
-            <button class="action-btn secondary outline" onclick="showEmailListManager()">
-                <i class="fas fa-envelope"></i>Listas de Correos
-            </button>
+            <div class="main-header">
+                <div class="main-header--options">
+                    <button class="action-btn tertiary" onclick="showSettings()">
+                    <i class="fas fa-cog"></i>Configuración
+                </button>
+                <button class="action-btn secondary" onclick="downloadAuditLogs()" title="Descargar registros de auditoría">
+                    <i class="fas fa-download"></i> Auditoría
+                </button>
+                
+                <button class="action-btn secondary outline" onclick="showEmailListManager()">
+                    <i class="fas fa-envelope"></i>Listas de Correos
+                </button>
+                </div>
+
+                <button id="refresh-btn" class="btn-refresh">
+                    <i class="fas fa-sync-alt"></i> Actualizar
+                </button>
+            </div>
+            
+
             <!-- Stats Cards -->
             <section class="stats-section">
                 <div class="stats-grid">
@@ -278,6 +286,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <!-- Script del Dashboard -->
-    <script src="/static/dashboard.js"></script>
+    <script src="/static/dashboard.js?v=1.1"></script>
+    <!-- <script src="/static/dashboard.js"></script> -->
 </body>
 </html>
