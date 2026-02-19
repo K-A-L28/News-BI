@@ -138,7 +138,7 @@ def validate_email_format(email: str) -> bool:
 
 # --- Funciones de Autenticación Microsoft OAuth2 ---
 
-# Almacenamiento de sesiones (en producción usar Redis o base de datos)
+# Almacenamiento de sesiones (usar base de datos en producción)
 SESSION_STORE = {}
 
 def get_msal_app():
@@ -1240,10 +1240,13 @@ async def save_settings(request: Request):
         db.close()
 
 @app.post("/api/retry-execution/{log_id}")
-async def retry_execution(log_id: str):
+@authenticate_user()
+async def retry_execution(request: Request, log_id: str):
     """API para reintentar una ejecución fallida"""
     db = SessionLocal()
     try:
+        logger.info(f"🔄 Usuario {request.state.user.get('email', 'Unknown')} solicitando reintento de ejecución {log_id}")
+        
         # Buscar la ejecución original por log_id
         execution = db.query(ExecutionLog).filter(ExecutionLog.log_id == log_id).first()
         
@@ -1266,6 +1269,25 @@ async def retry_execution(log_id: str):
         execution.retry_count += 1
         db.commit()
         
+        # Auditoría: Acción de reintento de ejecución
+        create_audit_log(
+            entity_type="EXECUTION_LOG",
+            entity_id=execution.log_id,
+            action="RETRY",
+            performed_by=request.state.user["user_id"],
+            session=db,
+            old_value={
+                "original_status": execution.status,
+                "original_retry_count": execution.retry_count - 1,
+                "triggered_by": execution.triggered_by
+            },
+            new_value={
+                "new_status": "RUNNING",
+                "retry_count": execution.retry_count,
+                "triggered_by": "MANUAL_RETRY"
+            }
+        )
+        
         # Crear un nuevo registro de ejecución para el reintento
         new_execution = ExecutionLog(
             schedule_id=schedule.schedule_id,
@@ -1287,6 +1309,24 @@ async def retry_execution(log_id: str):
             new_execution.finished_at = datetime.utcnow()
             db.commit()
             
+            # Auditoría: Resultado exitoso del reintento
+            create_audit_log(
+                entity_type="EXECUTION_LOG",
+                entity_id=new_execution.log_id,
+                action="RETRY_SUCCESS",
+                performed_by=request.state.user["user_id"],
+                session=db,
+                old_value={
+                    "retry_of": execution.log_id,
+                    "newsletter_name": newsletter.name
+                },
+                new_value={
+                    "status": "SUCCESS",
+                    "execution_id": new_execution.log_id,
+                    "result": result
+                }
+            )
+            
             return {
                 'success': True,
                 'message': f'Ejecución de "{newsletter.name}" completada exitosamente',
@@ -1298,6 +1338,24 @@ async def retry_execution(log_id: str):
             new_execution.finished_at = datetime.utcnow()
             new_execution.error_detail = result.get('error', 'Error desconocido')
             db.commit()
+            
+            # Auditoría: Resultado fallido del reintento
+            create_audit_log(
+                entity_type="EXECUTION_LOG",
+                entity_id=new_execution.log_id,
+                action="RETRY_FAILED",
+                performed_by=request.state.user["user_id"],
+                session=db,
+                old_value={
+                    "retry_of": execution.log_id,
+                    "newsletter_name": newsletter.name
+                },
+                new_value={
+                    "status": "FAILED",
+                    "execution_id": new_execution.log_id,
+                    "error": result.get('error', 'Error desconocido')
+                }
+            )
             
             return {
                 'success': False,
@@ -1869,12 +1927,34 @@ async def download_audit_logs(request: Request):
                     'piePagina': 'Pie de Página',
                     'limiteCorreos': 'Límite de Correos',
                     'allowed_domains': 'Dominios Permitidos',
-                    'is_test_mode': 'Modo Prueba'
+                    'is_test_mode': 'Modo Prueba',
+                    # Acciones de ejecución
+                    'EXECUTE': 'Ejecución de Boletín',
+                    'EXECUTE_RESULT': 'Resultado de Ejecución',
+                    'EXECUTE_ERROR': 'Error en Ejecución',
+                    'RETRY': 'Reintento de Ejecución',
+                    'RETRY_SUCCESS': 'Reintento Exitoso',
+                    'RETRY_FAILED': 'Reintento Fallido',
+                    'LOGIN': 'Inicio de Sesión',
+                    'LOGOUT': 'Cierre de Sesión',
+                    'CREATE': 'Creación',
+                    'UPDATE': 'Actualización',
+                    'DELETE': 'Eliminación',
+                    'TOGGLE_STATUS': 'Cambio de Estado'
                 }
-                config_name = config_names.get(audit_log.entity_id, audit_log.entity_id)
+                config_name = config_names.get(audit_log.action, f"Configuración: {audit_log.action}")
                 entity_description = f"{config_name} (ID: {audit_log.entity_id})"
-            else:
-                entity_description = f"{audit_log.entity_type} (ID: {audit_log.entity_id})"
+            elif audit_log.entity_type == 'EXECUTION_LOG':
+                action_names = {
+                    'RETRY': 'Reintento de Ejecución',
+                    'RETRY_SUCCESS': 'Reintento Exitoso',
+                    'RETRY_FAILED': 'Reintento Fallido',
+                    'EXECUTE': 'Ejecución de Boletín',
+                    'EXECUTE_RESULT': 'Resultado de Ejecución',
+                    'EXECUTE_ERROR': 'Error en Ejecución'
+                }
+                action_name = action_names.get(audit_log.action, audit_log.action)
+                entity_description = f"Ejecución (ID: {audit_log.entity_id}) - {action_name}"
             
             writer.writerow([
                 audit_log.audit_id,
