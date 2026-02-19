@@ -8,10 +8,14 @@ import os
 import logging
 from datetime import datetime, timedelta, time
 from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
+import msal
+import requests
+import secrets
+from urllib.parse import urlencode
 
 # Importaciones del sistema
 from models.database import SessionLocal, Schedule, Newsletter, ExecutionLog, FileAsset, User, SystemConfig, EmailList, EmailListItem
@@ -35,6 +39,13 @@ class StatsResponse(BaseModel):
     fallidos: int
     proximos: int
     tareasActivas: int
+
+class AuthConfigResponse(BaseModel):
+    tenant_id: str
+    client_id: str
+    redirect_uri: str
+    scope: str
+    fully_configured: bool
 
 class EnvioResponse(BaseModel):
     id: str
@@ -125,10 +136,139 @@ def validate_email_format(email: str) -> bool:
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return re.match(pattern, email) is not None
 
+# --- Funciones de Autenticación Microsoft OAuth2 ---
+
+# Almacenamiento de sesiones (en producción usar Redis o base de datos)
+SESSION_STORE = {}
+
+def get_msal_app():
+    """Crear instancia de aplicación MSAL"""
+    from utils.config import get_settings
+    settings = get_settings()
+    
+    client_secret = settings.get("CLIENT_SECRET")
+    
+    return msal.ConfidentialClientApplication(
+        client_id=settings.get("CLIENT_ID"),
+        authority=f"https://login.microsoftonline.com/{settings.get('TENANT_ID')}",
+        client_credential=client_secret
+    )
+
+def get_auth_config():
+    """Obtener configuración de autenticación"""
+    from utils.config import get_settings
+    settings = get_settings()
+    
+    tenant_id = settings.get("TENANT_ID")
+    client_id = settings.get("CLIENT_ID")
+    client_secret = settings.get("CLIENT_SECRET")
+    
+    fully_configured = bool(tenant_id and client_id and client_secret)
+    
+    return {
+        "tenant_id": tenant_id or "",
+        "client_id": client_id or "",
+        "redirect_uri": "http://localhost:8001/auth/callback",
+        "scope": "openid profile email User.Read",
+        "fully_configured": fully_configured
+    }
+
+def create_session_token():
+    """Crear token de sesión seguro"""
+    return secrets.token_urlsafe(32)
+
+def get_user_from_session(token: str):
+    """Obtener usuario desde token de sesión"""
+    return SESSION_STORE.get(token)
+
+def create_user_session(user_data: dict):
+    """Crear sesión de usuario"""
+    token = create_session_token()
+    SESSION_STORE[token] = {
+        "user": user_data,
+        "created_at": datetime.utcnow(),
+        "expires_at": datetime.utcnow() + timedelta(hours=8)  # Sesión de 8 horas
+    }
+    return token
+
+def cleanup_expired_sessions():
+    """Limpiar sesiones expiradas"""
+    now = datetime.utcnow()
+    expired_tokens = [
+        token for token, session in SESSION_STORE.items()
+        if session.get("expires_at", now) <= now
+    ]
+    for token in expired_tokens:
+        SESSION_STORE.pop(token, None)
+
+def is_session_valid(token: str):
+    """Verificar si la sesión es válida"""
+    session = SESSION_STORE.get(token)
+    if not session:
+        return False
+    
+    expires_at = session.get("expires_at")
+    if expires_at and expires_at <= datetime.utcnow():
+        SESSION_STORE.pop(token, None)
+        return False
+    
+    return True
+
+# Decorador para proteger endpoints
+from functools import wraps
+
+def authenticate_user():
+    """Decorador para verificar autenticación en endpoints"""
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(request: Request, *args, **kwargs):
+            session_token = request.cookies.get("session_token")
+            
+            if not session_token or not is_session_valid(session_token):
+                raise HTTPException(
+                    status_code=401, 
+                    detail="Autenticación requerida"
+                )
+            
+            # Agregar usuario al request para uso en el endpoint
+            request.state.user = get_user_from_session(session_token).get("user")
+            return await func(request, *args, **kwargs)
+        return wrapper
+    return decorator
+
 @app.get("/")
-async def serve_dashboard():
-    """Servir el dashboard principal"""
-    return FileResponse("views/dashboard/index.html")
+async def serve_root(request: Request):
+    """Servir página principal según estado de autenticación"""
+    try:
+        # Verificar si hay una sesión válida
+        session_token = request.cookies.get("session_token")
+        
+        if session_token and is_session_valid(session_token):
+            # Si hay sesión válida, redirigir al dashboard
+            return RedirectResponse(url="/dashboard")
+        else:
+            # Si no hay sesión válida, servir login
+            return FileResponse("views/login/index.html")
+            
+    except Exception as e:
+        logger.error(f"Error en endpoint principal: {str(e)}")
+        return FileResponse("views/login/index.html")
+
+@app.get("/dashboard")
+async def serve_dashboard(request: Request):
+    """Servir el dashboard principal (requiere autenticación)"""
+    try:
+        # Verificar si hay una sesión válida
+        session_token = request.cookies.get("session_token")
+        
+        if not session_token or not is_session_valid(session_token):
+            return RedirectResponse(url="/")
+        # Si hay sesión válida, servir dashboard
+        return FileResponse("views/dashboard/index.html")
+        
+    except Exception as e:
+        logger.error(f"Error en endpoint dashboard: {str(e)}")
+        return RedirectResponse(url="/")
 
 @app.get("/api/newsletters")
 async def get_newsletters():
@@ -156,7 +296,8 @@ async def get_newsletters():
         db.close()
 
 @app.get("/api/stats", response_model=StatsResponse)
-async def get_stats():
+@authenticate_user()
+async def get_stats(request: Request):
     """API para obtener estadísticas generales"""
     db = SessionLocal()
     try:
@@ -215,7 +356,8 @@ async def get_stats():
         db.close()
 
 @app.get("/api/envios", response_model=List[EnvioResponse])
-async def get_envios():
+@authenticate_user()
+async def get_envios(request: Request):
     """API para obtener envíos recientes"""
     db = SessionLocal()
     try:
@@ -255,7 +397,8 @@ async def get_envios():
         db.close()
 
 @app.get("/api/proximos", response_model=List[ProximoResponse])
-async def get_proximos():
+@authenticate_user()
+async def get_proximos(request: Request):
     """API para obtener próximos envíos programados"""
     db = SessionLocal()
     try:
@@ -286,7 +429,8 @@ async def get_proximos():
         db.close()
 
 @app.post("/api/toggle-schedule/{schedule_id}")
-async def toggle_schedule(schedule_id: str):
+@authenticate_user()
+async def toggle_schedule(request: Request, schedule_id: str):
     """API para alternar el estado de un schedule"""
     db = SessionLocal()
     try:
@@ -313,7 +457,8 @@ async def toggle_schedule(schedule_id: str):
         db.close()
 
 @app.post("/api/delete-schedule/{schedule_id}")
-async def delete_schedule(schedule_id: str):
+@authenticate_user()
+async def delete_schedule(request: Request, schedule_id: str):
     """API para eliminar un schedule y su newsletter asociado"""
     db = SessionLocal()
     try:
@@ -351,7 +496,8 @@ async def delete_schedule(schedule_id: str):
         db.close()
 
 @app.post("/api/execute")
-async def execute_report(request: ExecuteRequest):
+@authenticate_user()
+async def execute_report(http_request: Request, request: ExecuteRequest):
     """API para ejecutar un reporte manualmente"""
     try:
         # Usar el engine del sistema
@@ -1098,6 +1244,254 @@ async def delete_email_list(list_id: str):
     finally:
         db.close()
 
+# Endpoints de Autenticación Microsoft OAuth2
+
+@app.get("/api/auth/config", response_model=AuthConfigResponse)
+async def get_auth_config_endpoint():
+    """API para obtener configuración de autenticación"""
+    try:
+        config = get_auth_config()
+        return AuthConfigResponse(**config)
+    except Exception as e:
+        logger.error(f"Error obteniendo configuración de autenticación: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error obteniendo configuración de autenticación")
+
+@app.get("/auth/login")
+async def microsoft_login():
+    """Redirigir a Microsoft para autenticación"""
+    try:
+        config = get_auth_config()
+        
+        if not config["fully_configured"]:
+            raise HTTPException(
+                status_code=503, 
+                detail="La autenticación no está configurada. Contacta al administrador."
+            )
+        
+        # Construir URL de autorización
+        # Intentar primero con el tenant específico, si falla usar el común
+        auth_url = f"https://login.microsoftonline.com/{config['tenant_id']}/oauth2/v2.0/authorize?" + \
+                   urlencode({
+                       'client_id': config['client_id'],
+                       'response_type': 'code',
+                       'redirect_uri': config['redirect_uri'],
+                       'scope': config['scope'],
+                       'response_mode': 'query',
+                       'state': create_session_token()  # Token para seguridad CSRF
+                   })
+
+        
+        return RedirectResponse(url=auth_url)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en login de Microsoft: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error iniciando autenticación")
+
+@app.get("/auth/callback")
+async def microsoft_callback(request: Request):
+    """Procesar callback de Microsoft OAuth2"""
+    try:
+        # Obtener parámetros de la URL
+        code = request.query_params.get('code')
+        error = request.query_params.get('error')
+        error_description = request.query_params.get('error_description')
+        
+        if error:
+            logger.error(f"Error de autenticación Microsoft: {error} - {error_description}")
+            # Redirigir a login con error
+            error_params = urlencode({'error': error or 'authentication_failed'})
+            return RedirectResponse(url=f"/?{error_params}")
+        
+        if not code:
+            logger.error("No se recibió código de autorización")
+            error_params = urlencode({'error': 'no_code_received'})
+            return RedirectResponse(url=f"/?{error_params}")
+        
+        # Intercambiar código por token de acceso
+        msal_app = get_msal_app()
+        config = get_auth_config()
+        
+        # Obtener token de acceso
+        result = msal_app.acquire_token_by_authorization_code(
+            code,
+            scopes=["User.Read"],
+            redirect_uri=config['redirect_uri']
+        )
+        
+        if "error" in result:
+            logger.error(f"Error obteniendo token: {result.get('error_description')}")
+            error_params = urlencode({'error': 'token_exchange_failed'})
+            return RedirectResponse(url=f"/?{error_params}")
+        
+        # Extraer información del usuario desde id_token (JWT)
+        id_token = result.get('id_token')
+        if not id_token:
+            logger.error("No se recibió id_token")
+            error_params = urlencode({'error': 'no_id_token'})
+            return RedirectResponse(url=f"/?{error_params}")
+        
+        # Decodificar el JWT sin verificar firma (para obtener datos básicos)
+        import base64
+        import json
+        
+        try:
+            # El JWT tiene 3 partes: header.payload.signature
+            token_parts = id_token.split('.')
+            if len(token_parts) != 3:
+                raise ValueError("Token JWT inválido")
+            
+            # Decodificar el payload (segunda parte)
+            payload = token_parts[1]
+            # Agregar padding si es necesario
+            padding = '=' * (-len(payload) % 4)
+            decoded_payload = base64.urlsafe_b64decode(payload + padding)
+            user_data = json.loads(decoded_payload)
+            
+            # Datos del usuario obtenidos (no mostrar datos sensibles)
+            logger.info("Usuario autenticado exitosamente")
+            
+        except Exception as e:
+            logger.error(f"Error decodificando id_token: {str(e)}")
+            error_params = urlencode({'error': 'token_decode_failed'})
+            return RedirectResponse(url=f"/?{error_params}")
+        
+        # Guardar o actualizar usuario en la base de datos
+        db = SessionLocal()
+        try:
+            from models.database import create_or_update_user
+            
+            user = create_or_update_user(
+                email=user_data.get('preferred_username') or user_data.get('email'),
+                full_name=user_data.get('name', 'Usuario'),
+                session=db
+            )
+            
+            db.commit()
+            
+            # Crear sesión de usuario
+            session_token = create_user_session({
+                'user_id': user.user_id,
+                'email': user.email,
+                'full_name': user.full_name,
+                'role': user.role.value
+            })
+            
+            # Establecer cookie de sesión
+            response = RedirectResponse(url="/dashboard")
+            response.set_cookie(
+                key="session_token",
+                value=session_token,
+                max_age=8 * 3600,  # 8 horas
+                httponly=True,
+                secure=False,  # En producción usar True con HTTPS
+                samesite="lax"
+            )
+            
+            # Usuario autenticado (no mostrar datos sensibles)
+            logger.info("Sesión de usuario creada exitosamente")
+            return response
+            
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error guardando usuario: {str(e)}")
+            error_params = urlencode({'error': 'user_save_failed'})
+            return RedirectResponse(url=f"/?{error_params}")
+        finally:
+            db.close()
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en callback de Microsoft: {str(e)}")
+        error_params = urlencode({'error': 'callback_error'})
+        return RedirectResponse(url=f"/?{error_params}")
+
+@app.get("/auth/logout")
+async def microsoft_logout(request: Request):
+    """Cerrar sesión del usuario completamente"""
+    try:
+        # Obtener token de sesión de la cookie
+        session_token = request.cookies.get("session_token")
+        
+        if session_token:
+            # Eliminar sesión
+            SESSION_STORE.pop(session_token, None)
+            
+            # Obtener usuario para logging
+            session = get_user_from_session(session_token)
+            if session and session.get("user"):
+                # Cierre de sesión (no mostrar datos sensibles)
+                logger.info("Sesión de usuario cerrada")
+        
+        # Obtener configuración para logout de Microsoft
+        config = get_auth_config()
+        
+        # Construir URL de logout de Microsoft
+        post_logout_redirect_uri = "http://localhost:8001/"  # Redirigir a login después del logout de Microsoft
+        logout_url = f"https://login.microsoftonline.com/{config['tenant_id']}/oauth2/v2.0/logout"
+        logout_params = {
+            'post_logout_redirect_uri': post_logout_redirect_uri
+        }
+        
+        from urllib.parse import urlencode
+        microsoft_logout_url = f"{logout_url}?{urlencode(logout_params)}"
+        
+        # Primero eliminar cookie local
+        response = RedirectResponse(url=microsoft_logout_url)
+        response.delete_cookie(
+            key="session_token",
+            path="/",
+            domain=None,
+            samesite="lax"
+        )
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error en logout: {str(e)}")
+        # Aun si hay error, redirigir a login
+        response = RedirectResponse(url="/")
+        
+        # Eliminar cookie completamente
+        response.delete_cookie(
+            key="session_token",
+            path="/",
+            domain=None,
+            samesite="lax"
+        )
+        
+        return response
+
+@app.get("/api/auth/me")
+async def get_current_user(request: Request):
+    """Obtener información del usuario autenticado"""
+    try:
+        session_token = request.cookies.get("session_token")
+        
+        if not session_token or not is_session_valid(session_token):
+            raise HTTPException(status_code=401, detail="No autenticado")
+        
+        session = get_user_from_session(session_token)
+        user_data = session.get("user")
+        
+        if not user_data:
+            raise HTTPException(status_code=401, detail="Sesión inválida")
+        
+        return {
+            'user_id': user_data.get('user_id'),
+            'email': user_data.get('email'),
+            'full_name': user_data.get('full_name'),
+            'role': user_data.get('role')
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error obteniendo usuario actual: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error obteniendo información de usuario")
+
 # Endpoints para gestión de credenciales .env
 class CredentialsResponse(BaseModel):
     credentials: Dict[str, str]
@@ -1262,7 +1656,8 @@ def start_api_server():
     logger.info("📊 Dashboard disponible en: http://localhost:8001")
     
     import uvicorn
-    uvicorn.run(app, host="localhost", port=8001, log_level="info")
+    uvicorn.run(app, host="localhost", port=8001, log_level="info", access_log=False)
+    # uvicorn.run(app, host="localhost", port=8001, log_level="warning", access_log=False)
 
 if __name__ == "__main__":
     start_api_server()

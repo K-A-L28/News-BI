@@ -23,7 +23,43 @@ class Dashboard {
         this.refreshInterval = null;
         this.editingSchedule = false; // Flag to block refresh when editing
         this.retryInProgress = new Set(); // Track which retries are in progress
-        this.init();
+        this.currentUser = null;
+        this.checkAuthentication().then(() => {
+            this.init();
+        });
+    }
+
+    async checkAuthentication() {
+        try {
+            const response = await fetch('/api/auth/me', {
+                credentials: 'include'
+            });
+            if (response.ok) {
+                this.currentUser = await response.json();
+                this.updateUserInfo();
+            } else {
+                // Limpiar datos locales si la sesión no es válida
+                this.currentUser = null;
+                window.location.href = '/';
+            }
+        } catch (error) {
+            console.error('Error verificando autenticación:', error);
+            // Limpiar datos locales en caso de error
+            this.currentUser = null;
+            window.location.href = '/';
+        }
+    }
+
+    updateUserInfo() {
+        const userNameElement = document.getElementById('user-name');
+        const userEmailElement = document.getElementById('user-email');
+        
+        if (userNameElement && this.currentUser) {
+            userNameElement.textContent = this.currentUser.full_name;
+        }
+        if (userEmailElement && this.currentUser) {
+            userEmailElement.textContent = this.currentUser.email;
+        }
     }
 
     init() {
@@ -122,7 +158,9 @@ class Dashboard {
 
     async fetchStats() {
         try {
-            const response = await fetch('/api/stats');
+            const response = await fetch('/api/stats', {
+                credentials: 'include'
+            });
             return await response.json();
         } catch (error) {
             return {
@@ -136,7 +174,9 @@ class Dashboard {
 
     async fetchEnvios() {
         try {
-            const response = await fetch('/api/envios');
+            const response = await fetch('/api/envios', {
+                credentials: 'include'
+            });
             return await response.json();
         } catch (error) {
             return [];
@@ -145,15 +185,10 @@ class Dashboard {
 
     async fetchProximos() {
         try {
-            const response = await fetch('/api/proximos');
-            
-            if (!response.ok) {
-                return [];
-            }
-            
-            const data = await response.json();
-            
-            return data;
+            const response = await fetch('/api/proximos', {
+                credentials: 'include'
+            });
+            return await response.json();
         } catch (error) {
             return [];
         }
@@ -1529,6 +1564,45 @@ function filterTable(tableType, filter) {
 // Global wrapper functions for immediate HTML access
 function showSettings() {
     if (dashboard) dashboard.showSettings();
+}
+
+function logout() {
+    // Eliminar cualquier dato local del usuario
+    if (window.dashboard) {
+        window.dashboard.currentUser = null;
+    }
+    
+    // Limpiar completamente el almacenamiento del navegador
+    try {
+        // Limpiar sessionStorage
+        sessionStorage.clear();
+        
+        // Limpiar localStorage (solo si hay datos de la app)
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && (key.includes('user') || key.includes('auth') || key.includes('session') || key.includes('dashboard'))) {
+                keysToRemove.push(key);
+            }
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key));
+        
+        // Limpiar caché del navegador
+        if ('caches' in window) {
+            caches.keys().then(names => {
+                names.forEach(name => {
+                    if (name.includes('auth') || name.includes('user') || name.includes('dashboard')) {
+                        caches.delete(name);
+                    }
+                });
+            });
+        }
+    } catch (error) {
+        console.warn('Error limpiando almacenamiento:', error);
+    }
+    
+    // Forzar redirección inmediata al logout del servidor
+    window.location.href = '/auth/logout';
 }
 
 function closeModal() {
