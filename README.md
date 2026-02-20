@@ -1,4 +1,4 @@
-# NewsPilot - Sistema de Gestión de Boletines
+# News BI - Sistema de Gestión de Boletines
 
 ![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115.6-green.svg)
@@ -7,7 +7,7 @@
 
 ## 📋 Descripción
 
-NewsPilot es un sistema completo para la gestión y automatización de boletines informativos. Permite crear, programar y enviar boletines por correo electrónico de manera automatizada, con integración con Microsoft Azure Active Directory para autenticación y soporte para plantillas HTML personalizadas.
+News BI es un sistema completo para la gestión y automatización de boletines informativos. Permite crear, programar y enviar boletines por correo electrónico de manera automatizada, con integración con Microsoft Azure Active Directory para autenticación y soporte para plantillas HTML personalizadas.
 
 ## 🚀 Características Principales
 
@@ -32,7 +32,7 @@ NewsPilot es un sistema completo para la gestión y automatización de boletines
 ## 📁 Estructura del Proyecto
 
 ```
-NewsPilot/
+News BI/
 ├── controllers/           # Lógica de controladores
 │   ├── api_server.py     # Servidor API FastAPI
 │   ├── engine.py         # Motor de procesamiento
@@ -72,7 +72,7 @@ NewsPilot/
 1. **Clonar el repositorio**
    ```bash
    git clone <URL_DEL_REPOSITORIO>
-   cd NewsPilot
+   cd News-BI
    ```
 
 2. **Crear entorno virtual**
@@ -207,7 +207,7 @@ python -m scripts.dev.init_test_mode
 python -m scripts.dev.clean_database
 ```
 
-## 📄 Licencia
+## 📄 Licencia 
 
 Este proyecto está bajo la Licencia MIT. Ver el archivo `LICENSE` para más detalles.
 
@@ -255,4 +255,4 @@ Para reportar problemas o solicitar ayuda:
 
 ---
 
-**NewsPilot** - Simplificando la gestión de boletines informativos 🚀
+**News BI** - Simplificando la gestión de boletines informativos 🚀
