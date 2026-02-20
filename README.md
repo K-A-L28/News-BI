@@ -71,7 +71,7 @@ News BI/
 
 1. **Clonar el repositorio**
    ```bash
-   git clone <URL_DEL_REPOSITORIO>
+   git clone https://github.com/K-A-L28/News-BI
    cd News-BI
    ```
 
@@ -245,7 +245,6 @@ Para reportar problemas o solicitar ayuda:
 ### Frontend
 - **HTML5/CSS3**: Interfaz web moderna
 - **JavaScript (ES6+)**: Lógica del cliente
-- **Bootstrap**: Framework CSS responsivo
 
 ### Integraciones
 - **Microsoft Graph API**: Autenticación y servicios
