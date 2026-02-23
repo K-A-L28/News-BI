@@ -2,6 +2,32 @@
 
 let dashboard = null;
 
+// Interceptor global para manejar sesiones expiradas
+const originalFetch = window.fetch;
+window.fetch = async function(...args) {
+    try {
+        const response = await originalFetch.apply(this, args);
+        
+        // Si la respuesta es 401, limpiar cookie y redirigir al login
+        if (response.status === 401) {
+            console.log('Sesión expirada detectada, limpiando cookie y redirigiendo al login...');
+            // Limpiar datos de usuario
+            if (window.dashboard) {
+                window.dashboard.currentUser = null;
+            }
+            // Limpiar cookie de sesión
+            document.cookie = 'session_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+            // Redirigir al login
+            window.location.href = '/';
+            return response;
+        }
+        
+        return response;
+    } catch (error) {
+        return Promise.reject(error);
+    }
+};
+
 // Función global para descargar auditoría - definida al principio para que esté disponible inmediatamente
 function downloadAuditLogs() {
     if (window.dashboard && typeof window.dashboard.downloadAuditLogs === 'function') {
@@ -465,13 +491,13 @@ class Dashboard {
             
             <div class="form-group">
                 <label>Remitente de Correos:</label>
-                <input type="email" id="email-remite" class="form-control" placeholder="noreply@empresa.com" value="">
+                <input type="email" id="email-remite" class="form-control" placeholder="noreply@empresa.com" value="" required>
                 <small class="form-text">Dirección de correo que aparecerá como remitente de todos los boletines</small>
             </div>
             
             <div class="form-group">
                 <label>Limite por lista de correos:</label>
-                <input type="number" id="limite-correos" class="form-control" placeholder="100" min="1" value="">
+                <input type="number" id="limite-correos" class="form-control" placeholder="100" min="1" value="" required>
                 <small class="form-text">Número máximo de correos que se enviarán por lista de correos</small>
             </div>
             
@@ -494,7 +520,7 @@ class Dashboard {
             </div>
             
             <div class="form-actions">
-                <button class="btn-primary" onclick="dashboard.saveSettings()">
+                <button type="button" class="btn-primary" onclick="dashboard.saveSettings()">
                     <i class="fas fa-save"></i> Guardar Configuración
                 </button>
                 <button class="btn-secondary" onclick="dashboard.closeModal()">Cancelar</button>
@@ -1369,7 +1395,7 @@ class Dashboard {
         document.body.removeChild(input);
     }
     
-    async saveSettings() {
+    async saveSettings() {        
         try {
             // Obtener valores del formulario
             const emailRemitente = document.getElementById('email-remite').value;
@@ -1377,18 +1403,30 @@ class Dashboard {
             const limiteCorreos = document.getElementById('limite-correos').value;
             const allowedDomains = document.getElementById('allowed-domains').value;
             
-            // Validar email si se proporciona
-            if (emailRemitente && !this.validateEmail(emailRemitente)) {
+            
+            // Validación simple y directa
+            if (!emailRemitente || emailRemitente.trim() === '') {
+                this.showToast('Por favor complete el email del remitente (es requerido)', 'error');
+                return;
+            }
+            
+            if (!limiteCorreos || limiteCorreos.trim() === '') {
+                this.showToast('Por favor complete el límite de correos (es requerido)', 'error');
+                return;
+            }
+                        
+            // Validar email del remitente
+            if (!this.validateEmail(emailRemitente)) {
                 this.showToast('El email del remitente no es válido', 'error');
                 return;
             }
             
-            // Validar límite de correos si se proporciona
-            if (limiteCorreos && (isNaN(limiteCorreos) || parseInt(limiteCorreos) < 1)) {
+            // Validar límite de correos
+            if (isNaN(limiteCorreos) || parseInt(limiteCorreos) < 1) {
                 this.showToast('El límite de correos debe ser un número mayor a 0', 'error');
                 return;
             }
-            
+                        
             // Preparar configuración para enviar al servidor
             const config = {
                 emailRemitente: emailRemitente,
@@ -1532,6 +1570,18 @@ class Dashboard {
 function showUploadBulletinModal() {
     if (window.dashboard) {
         return window.dashboard.showUploadBulletinModal();
+    } else {
+        console.error('Dashboard no está disponible');
+        return null;
+    }
+}
+
+function showEmailListModal() {
+    if (window.dashboard) {
+        return window.dashboard.showEmailListModal();
+    } else {
+        console.error('Dashboard no está disponible');
+        return null;
     }
 }
 

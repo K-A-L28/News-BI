@@ -201,6 +201,11 @@
     </div>
 
     <script>
+        // Limpiar cookies de sesión al cargar la página de login
+        document.addEventListener('DOMContentLoaded', function() {
+            document.cookie = 'session_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+        });
+        
         // Obtener configuración del servidor
         let authConfig = null;
         
@@ -253,7 +258,8 @@
                 `response_type=code&` +
                 `redirect_uri=${encodeURIComponent(authConfig.redirect_uri)}&` +
                 `scope=${encodeURIComponent(authConfig.scope)}&` +
-                `response_mode=query`;
+                `response_mode=query&` +
+                `prompt=login`;  // Forzar re-autenticación
             
             // Redirigir a Microsoft para autenticación
             window.location.href = authUrl;

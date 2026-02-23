@@ -184,23 +184,29 @@ def get_user_from_session(token: str):
 def create_user_session(user_data: dict):
     """Crear sesión de usuario"""
     token = create_session_token()
+    now = datetime.now()  # Hora local
+    expires_at = now + timedelta(hours=8)  # Sesión de 8 horas
     SESSION_STORE[token] = {
         "user": user_data,
-        "created_at": datetime.utcnow(),
-        "expires_at": datetime.utcnow() + timedelta(hours=8)  # Sesión de 8 horas
+        "created_at": now,
+        "expires_at": expires_at
     }
     return token
 
 def cleanup_expired_sessions():
     """Limpiar sesiones expiradas"""
-    now = datetime.utcnow()
+    now = datetime.now()  # Hora local
+
     expired_tokens = [
         token for token, session in SESSION_STORE.items()
         if session.get("expires_at", now) <= now
     ]
+    
     for token in expired_tokens:
+        session = SESSION_STORE.get(token)
+        expires_at = session.get("expires_at") if session else None
         SESSION_STORE.pop(token, None)
-
+    
 def is_session_valid(token: str):
     """Verificar si la sesión es válida"""
     session = SESSION_STORE.get(token)
@@ -208,7 +214,9 @@ def is_session_valid(token: str):
         return False
     
     expires_at = session.get("expires_at")
-    if expires_at and expires_at <= datetime.utcnow():
+    now = datetime.now()  # Hora local
+    
+    if expires_at and expires_at <= now:
         SESSION_STORE.pop(token, None)
         return False
     
@@ -222,6 +230,9 @@ def authenticate_user():
     def decorator(func):
         @wraps(func)
         async def wrapper(request: Request, *args, **kwargs):
+            # Limpiar sesiones expiradas automáticamente
+            cleanup_expired_sessions()
+            
             session_token = request.cookies.get("session_token")
             
             if not session_token or not is_session_valid(session_token):
@@ -234,9 +245,7 @@ def authenticate_user():
             session_data = get_user_from_session(session_token)
             if session_data and session_data.get("user"):
                 request.state.user = session_data.get("user")
-                logger.debug(f"Usuario asignado: {request.state.user.get('email', 'Unknown')}")
             else:
-                logger.error(f"❌ Error: No se pudo obtener usuario de la sesión. Token: {session_token[:8]}...")
                 raise HTTPException(
                     status_code=401, 
                     detail="Sesión inválida o expirada"
