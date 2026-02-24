@@ -654,6 +654,16 @@ class SystemEngine:
                     'error': 'El nombre del boletín es requerido'
                 }
             
+            # Validar que el nombre del boletín no contenga símbolos extraños
+            # Permitir: letras, números, espacios, guiones, guiones bajos, paréntesis, y caracteres con acentos
+            import re
+            valid_name_pattern = re.compile(r'^[a-zA-Z0-9\sáéíóúÁÉÍÓÚñÑüÜ\-_()]+$')
+            if not valid_name_pattern.match(bulletin_name.strip()):
+                return {
+                    'success': False,
+                    'error': 'El nombre del boletín solo puede contener letras, números, espacios, guiones (-), guiones bajos (_), paréntesis () y caracteres con acentos'
+                }
+            
             if not email_list_id or email_list_id.strip() == "":
                 return {
                     'success': False,

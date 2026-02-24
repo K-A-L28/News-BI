@@ -1103,6 +1103,8 @@ class Dashboard {
                 <div class="form-group">
                     <label for="bulletin-name">Nombre del Boletín:</label>
                     <input type="text" id="bulletin-name" class="form-control" placeholder="Ej: Reporte Diario de Ventas" required>
+                    <small class="form-text text-muted">Solo se permiten letras, números, espacios, guiones (-), guiones bajos (_), paréntesis () y caracteres con acentos</small>
+                    <div id="bulletin-name-error" class="invalid-feedback" style="display: none; color: #dc3545; font-size: 0.875rem; margin-top: 0.25rem;"></div>
                 </div>
                 
                 <div class="form-group">
@@ -1176,6 +1178,24 @@ class Dashboard {
         document.getElementById('upload-bulletin-form').addEventListener('submit', (e) => {
             e.preventDefault();
             this.uploadBulletin();
+        });
+        
+        // Agregar validación en tiempo real para el nombre del boletín
+        const bulletinNameInput = document.getElementById('bulletin-name');
+        const bulletinNameError = document.getElementById('bulletin-name-error');
+        
+        bulletinNameInput.addEventListener('input', () => {
+            const value = bulletinNameInput.value.trim();
+            const validNamePattern = /^[a-zA-Z0-9\sáéíóúÁÉÍÓÚñÑüÜ\-_()]+$/;
+            
+            if (value && !validNamePattern.test(value)) {
+                bulletinNameInput.style.borderColor = '#dc3545';
+                bulletinNameError.style.display = 'block';
+                bulletinNameError.textContent = 'El nombre contiene caracteres no permitidos';
+            } else {
+                bulletinNameInput.style.borderColor = '';
+                bulletinNameError.style.display = 'none';
+            }
         });
     }
     
@@ -1272,6 +1292,14 @@ class Dashboard {
         // Validaciones
         if (!bulletinName) {
             this.showToast('Por favor ingresa el nombre del boletín', 'error');
+            return;
+        }
+        
+        // Validar que el nombre del boletín no contenga símbolos extraños
+        // Permitir: letras, números, espacios, guiones, guiones bajos, paréntesis, y caracteres con acentos
+        const validNamePattern = /^[a-zA-Z0-9\sáéíóúÁÉÍÓÚñÑüÜ\-_()]+$/;
+        if (!validNamePattern.test(bulletinName)) {
+            this.showToast('El nombre del boletín solo puede contener letras, números, espacios, guiones (-), guiones bajos (_), paréntesis () y caracteres con acentos', 'error');
             return;
         }
         
