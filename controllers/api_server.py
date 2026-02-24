@@ -2178,6 +2178,18 @@ async def update_credentials(request: CredentialsUpdateRequest):
     """API para actualizar credenciales del archivo .env (encriptar y guardar)"""
     db = SessionLocal()
     try:
+        # Validar que no haya campos vacíos
+        empty_fields = []
+        for key, value in request.credentials.items():
+            if not value or not value.strip():
+                empty_fields.append(key)
+        
+        if empty_fields:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Los siguientes campos no pueden estar vacíos: {', '.join(empty_fields)}"
+            )
+        
         env_path = os.path.join(os.getcwd(), '.env')
         
         # Guardar credenciales encriptadas

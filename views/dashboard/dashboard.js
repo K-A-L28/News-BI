@@ -2279,12 +2279,26 @@ Dashboard.prototype.saveCredentials = async function() {
         // Recopilar todas las credenciales del formulario
         const credentials = {};
         const inputs = document.querySelectorAll('.credential-input');
+        let hasEmptyFields = false;
+        const emptyFields = [];
         
         inputs.forEach(input => {
             const key = input.dataset.key;
-            const value = input.value;
+            const value = input.value.trim();
+            
+            if (!value) {
+                hasEmptyFields = true;
+                emptyFields.push(key);
+            }
+            
             credentials[key] = value;
         });
+        
+        // Validar que no haya campos vacíos
+        if (hasEmptyFields) {
+            this.showToast(`El campo no puede estar vacío: ${emptyFields.join(', ')}`, 'error');
+            return;
+        }
         
         // Mostrar confirmación
         if (!confirm('¿Está seguro de guardar las credenciales? El archivo .env será encriptado.')) {
@@ -2307,8 +2321,23 @@ Dashboard.prototype.saveCredentials = async function() {
             this.showToast(result.message || 'Credenciales guardadas exitosamente', 'success');
             this.closeModal();
         } else {
-            const error = await response.json();
-            throw new Error(error.detail || 'Error guardando credenciales');
+            // Manejar diferentes tipos de error
+            const errorText = await response.text();
+            let errorMessage = 'Error guardando credenciales';
+            
+            try {
+                const error = JSON.parse(errorText);
+                errorMessage = error.detail || errorMessage;
+            } catch (e) {
+                // Si no es JSON, usar el texto directamente
+                if (response.status === 400) {
+                    errorMessage = errorText || 'Error de validación';
+                } else if (response.status === 500) {
+                    errorMessage = 'Error interno del servidor';
+                }
+            }
+            
+            throw new Error(errorMessage);
         }
         
     } catch (error) {
