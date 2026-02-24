@@ -1349,6 +1349,16 @@ class PythonScriptWrapper:
                             'result': result,
                             'logs': all_logs
                         }
+
+                except SystemExit as e:
+                    # Capturar sys.exit() del boletín
+                    self.logger.error(f"❌ El boletín ejecutó sys.exit({e.code}): {tarea.newsletter.name if 'tarea' in locals() else 'script'}")
+                    return {
+                        'success': False,
+                        'error': f"El boletín ejecutó sys.exit({e.code})",
+                        'logs': log_capture.getvalue(),
+                        'return_code': e.code
+                        }
                         
                 except Exception as e:
                     self.logger.error(f"❌ Error ejecutando script: {str(e)}", exc_info=True)
