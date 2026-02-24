@@ -1933,6 +1933,37 @@ function showEmailListManager() {
     }
     
     modal.style.display = 'block';
+    
+    // Agregar validación en tiempo real para el nombre de la lista
+    const emailListNameInput = document.getElementById('email-list-name');
+    const emailListNameError = document.getElementById('email-list-name-error');
+    
+    if (emailListNameInput && emailListNameError) {
+        // Remover event listener anterior si existe para evitar duplicados
+        emailListNameInput.removeEventListener('input', handleEmailListNameValidation);
+        
+        // Agregar event listener para validación en tiempo real
+        emailListNameInput.addEventListener('input', handleEmailListNameValidation);
+    }
+}
+
+function handleEmailListNameValidation() {
+    const emailListNameInput = document.getElementById('email-list-name');
+    const emailListNameError = document.getElementById('email-list-name-error');
+    
+    if (!emailListNameInput || !emailListNameError) return;
+    
+    const value = emailListNameInput.value.trim();
+    const validNamePattern = /^[a-zA-Z0-9\sáéíóúÁÉÍÓÚñÑüÜ\-_()]+$/;
+    
+    if (value && !validNamePattern.test(value)) {
+        emailListNameInput.style.borderColor = '#dc3545';
+        emailListNameError.style.display = 'block';
+        emailListNameError.textContent = 'El nombre contiene caracteres no permitidos';
+    } else {
+        emailListNameInput.style.borderColor = '';
+        emailListNameError.style.display = 'none';
+    }
 }
 
 function closeEmailListModal() {
@@ -1940,13 +1971,21 @@ function closeEmailListModal() {
 }
 
 async function uploadEmailList() {
-    const listName = document.getElementById('email-list-name').value;
+    const listName = document.getElementById('email-list-name').value.trim();
     const descriptionElement = document.getElementById('email-list-description');
     const description = descriptionElement ? descriptionElement.value : '';
     const csvFile = document.getElementById('email-csv-file').files[0];
     
     if (!listName || !csvFile) {
         dashboard.showToast('Por favor complete todos los campos obligatorios', 'error');
+        return;
+    }
+    
+    // Validar que el nombre de la lista no contenga símbolos extraños
+    // Permitir: letras, números, espacios, guiones, guiones bajos, paréntesis, y caracteres con acentos
+    const validNamePattern = /^[a-zA-Z0-9\sáéíóúÁÉÍÓÚñÑüÜ\-_()]+$/;
+    if (!validNamePattern.test(listName)) {
+        dashboard.showToast('El nombre de la lista solo puede contener letras, números, espacios, guiones (-), guiones bajos (_), paréntesis () y caracteres con acentos', 'error');
         return;
     }
     
@@ -2028,8 +2067,23 @@ async function uploadEmailList() {
             // Recargar listas
             loadEmailLists();
         } else {
-            const error = await response.json();
-            dashboard.showToast(error.detail || 'Error creando lista de correos', 'error');
+            let errorMessage = 'Error creando lista de correos';
+            const contentType = response.headers.get('content-type');
+            
+            if (contentType && contentType.includes('application/json')) {
+                try {
+                    const error = await response.json();
+                    errorMessage = error.detail || errorMessage;
+                } catch (e) {
+                    errorMessage = 'Error del servidor (JSON inválido)';
+                }
+            } else {
+                // Para respuestas no-JSON, obtener el texto directamente
+                const errorText = await response.text();
+                errorMessage = errorText || errorMessage;
+            }
+            
+            dashboard.showToast(errorMessage, 'error');
         }
         
     } catch (error) {

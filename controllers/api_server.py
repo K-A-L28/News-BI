@@ -1425,15 +1425,25 @@ async def get_execution_status(log_id: str):
 # Endpoints para gestión de listas de correos
 @app.post("/api/email-lists", response_model=dict)
 @authenticate_user()
-async def create_email_list(request: EmailListRequest):
+async def create_email_list(request: Request, email_request: EmailListRequest):
     """Crear una nueva lista de correos desde CSV"""
     db = SessionLocal()
     try:
+        # Validar que el nombre de la lista no contenga símbolos extraños
+        # Permitir: letras, números, espacios, guiones, guiones bajos, paréntesis, y caracteres con acentos
+        import re
+        valid_name_pattern = re.compile(r'^[a-zA-Z0-9\sáéíóúÁÉÍÓÚñÑüÜ\-_()]+$')
+        if not valid_name_pattern.match(email_request.list_name.strip()):
+            raise HTTPException(
+                status_code=400,
+                detail='El nombre de la lista solo puede contener letras, números, espacios, guiones (-), guiones bajos (_), paréntesis () y caracteres con acentos'
+            )
+        
         # Validar límite de correos
-        if len(request.emails) > (request.max_recipients or 100):
+        if len(email_request.emails) > (email_request.max_recipients or 100):
             raise HTTPException(
                 status_code=400, 
-                detail=f"La lista contiene {len(request.emails)} correos, pero el límite es de {request.max_recipients or 100}"
+                detail=f"La lista contiene {len(email_request.emails)} correos, pero el límite es de {email_request.max_recipients or 100}"
             )
         
         # Validar correos y filtrar por dominio si es necesario
@@ -1441,7 +1451,7 @@ async def create_email_list(request: EmailListRequest):
         invalid_emails = []
         domain_rejected_emails = []
         
-        for email in request.emails:
+        for email in email_request.emails:
             email = email.strip()
             
             # Validar formato
@@ -1471,9 +1481,9 @@ async def create_email_list(request: EmailListRequest):
         
         # Crear la lista (sin allowed_domains, ahora es global)
         email_list = EmailList(
-            list_name=request.list_name,
-            description=request.description,
-            max_recipients=request.max_recipients or 100,
+            list_name=email_request.list_name,
+            description=email_request.description,
+            max_recipients=email_request.max_recipients or 100,
             email_count=len(valid_emails),
             created_by=request.state.user["user_id"]  # Usar usuario autenticado
         )
@@ -1498,15 +1508,15 @@ async def create_email_list(request: EmailListRequest):
             performed_by=request.state.user["user_id"],
             session=db,
             new_value={
-                "list_name": request.list_name,
-                "description": request.description,
+                "list_name": email_request.list_name,
+                "description": email_request.description,
                 "email_count": len(valid_emails),
-                "max_recipients": request.max_recipients or 100
+                "max_recipients": email_request.max_recipients or 100
             }
         )
         
         # Construir mensaje con notificación de correos rechazados si hay
-        message = f"Lista '{request.list_name}' creada exitosamente con {len(valid_emails)} correos"
+        message = f"Lista '{email_request.list_name}' creada exitosamente con {len(valid_emails)} correos"
         
         if domain_rejected_emails:
             # Obtener dominios permitidos para mostrarlos
