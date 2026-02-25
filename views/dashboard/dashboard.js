@@ -1104,7 +1104,7 @@ class Dashboard {
                     <label for="bulletin-name">Nombre del Boletín:</label>
                     <input type="text" id="bulletin-name" class="form-control" placeholder="Ej: Reporte Diario de Ventas" required>
                     <small class="form-text text-muted">Solo se permiten letras, números, espacios, guiones (-), guiones bajos (_), paréntesis () y caracteres con acentos</small>
-                    <div id="bulletin-name-error" class="invalid-feedback" style="display: none; color: #dc3545; font-size: 0.875rem; margin-top: 0.25rem;"></div>
+                    <div id="bulletin-name-error" class="invalid-feedback" style="display: none; color: #dc3545; font-size: 1.2rem; margin-top: 0.25rem;"></div>
                 </div>
                 
                 <div class="form-group">
