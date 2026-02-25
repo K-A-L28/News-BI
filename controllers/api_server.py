@@ -1879,6 +1879,77 @@ async def microsoft_logout(request: Request):
         
         return response
 
+@app.get("/auth/local-logout")
+async def local_logout(request: Request):
+    """Cerrar sesión del usuario localmente (sin logout de Microsoft)"""
+    try:
+        # Obtener token de sesión de la cookie
+        session_token = request.cookies.get("session_token")
+        
+        user_id = None
+        user_email = None
+        
+        if session_token:
+            # Eliminar sesión
+            session_data = SESSION_STORE.pop(session_token, None)
+            
+            # Obtener usuario para auditoría
+            if session_data and session_data.get("user"):
+                user_info = session_data["user"]
+                user_id = user_info.get("user_id")
+                user_email = user_info.get("email")
+                
+                # Auditoría: Logout local
+                db = SessionLocal()
+                try:
+                    create_audit_log(
+                        entity_type="USER",
+                        entity_id=user_id,
+                        action="LOGOUT",
+                        performed_by=user_id,
+                        session=db,
+                        new_value={
+                            "email": user_email,
+                            "logout_method": "LOCAL"
+                        }
+                    )
+                    db.commit()
+                except Exception as e:
+                    logger.error(f"Error registrando auditoría de logout local: {str(e)}")
+                finally:
+                    db.close()
+                
+                # Cierre de sesión local (no mostrar datos sensibles)
+                logger.info("Sesión de usuario cerrada localmente")
+        
+        # Redirigir directamente al login sin pasar por Microsoft logout
+        response = RedirectResponse(url="/")
+        
+        # Eliminar cookie local
+        response.delete_cookie(
+            key="session_token",
+            path="/",
+            domain=None,
+            samesite="lax"
+        )
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error en logout local: {str(e)}")
+        # Aun si hay error, redirigir a login
+        response = RedirectResponse(url="/")
+        
+        # Eliminar cookie completamente
+        response.delete_cookie(
+            key="session_token",
+            path="/",
+            domain=None,
+            samesite="lax"
+        )
+        
+        return response
+
 @app.get("/api/audit/download")
 @authenticate_user()
 async def download_audit_logs(request: Request):

@@ -1689,8 +1689,8 @@ function logout() {
         console.warn('Error limpiando almacenamiento:', error);
     }
     
-    // Forzar redirección inmediata al logout del servidor
-    window.location.href = '/auth/logout';
+    // Forzar redirección inmediata al logout local del servidor
+    window.location.href = '/auth/local-logout';
 }
 
 function closeModal() {
