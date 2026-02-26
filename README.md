@@ -228,10 +228,41 @@ Para reportar problemas o solicitar ayuda:
 
 ## 🔄 Versiones
 
+- **v1.9.9** - Versión version avanzada con mejoras en la interfaz y funcionalidades
+- Se implementaron nuevas funciones para mejora la UX (experiencia de usuario) y se corrijen errores de funcionalidad
+
+- **Se paso por alto el versionamiento, eso explica el avance tan grande entre versiones**
+
 - **v1.0.0** - Versión inicial con funcionalidades completas
 - Sistema de auditoría implementado
 - Integración con Microsoft Azure AD
 - Panel de administración responsivo
+
+## 🔄 Versiones
+Ejemplo:
+- v1.1.0 (nueva funcionalidad)
+- v1.0.1 (corrección de errores)
+- v2.0.0 (cambio mayor)
+
+### **v1.9.9** *(Current Version)*
+**Fecha:** 2026-02-26  
+**Tipo:** Feature Release  
+**Cambios:**
+- ✨ **Mejoras de UX**: Nueva interfaz optimizada para mejor experiencia de usuario
+- 🔧 **Correcciones de funcionalidad**: Se resolvieron errores críticos del sistema
+- 📱 **Optimizaciones de interfaz**: Mejoras en el panel de administración
+- 🐛 **Bug fixes**: Corrección de errores reportados
+
+**Nota:** Esta versión incluye múltiples funcionalidades acumuladas debido a que el versionamiento semántico no se implementó desde el inicio del proyecto.
+
+### **v1.0.0** *(Initial Release)*
+**Fecha:** 2026-02-11  
+**Tipo:** Major Release  
+**Cambios:**
+- 🚀 **Versión inicial** con funcionalidades completas
+- 🔐 **Sistema de auditoría** implementado
+- 🌐 **Integración con Microsoft Azure AD**
+- 📱 **Panel de administración** responsivo
 
 ## 📚 Tecnologías Utilizadas
 
