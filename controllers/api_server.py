@@ -651,6 +651,61 @@ async def upload_bulletin_get():
     """Endpoint GET para upload-bulletin - devuelve error informativo"""
     raise HTTPException(status_code=405, detail="Método no permitido. Use POST para cargar boletines.")
 
+# Esta api solo es para mostrar el contenido del script de ejemplo
+@app.get("/api/example-script")
+async def get_example_script():
+    """API para obtener el contenido del script de ejemplo main_example.py"""
+    try:
+        example_file_path = "examples_for_bolletin/main_example.py"
+        
+        # Verificar que el archivo existe
+        if not os.path.exists(example_file_path):
+            raise HTTPException(status_code=404, detail="Archivo de ejemplo no encontrado")
+        
+        # Leer el contenido del archivo
+        with open(example_file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Devolver el contenido como texto plano
+        return Response(
+            content=content,
+            media_type="text/plain",
+            headers={"Content-Disposition": "inline; filename=main_example.py"}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error obteniendo script de ejemplo: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error obteniendo script de ejemplo")
+# Estra API solo muestra un contenido de ejemplo para el html de un boletin
+@app.get("/api/example-template")
+async def get_example_template():
+    """API para obtener el contenido de la plantilla HTML de ejemplo"""
+    try:
+        template_file_path = "examples_for_bolletin/boletin_template_example.html"
+        
+        # Verificar que el archivo existe
+        if not os.path.exists(template_file_path):
+            raise HTTPException(status_code=404, detail="Plantilla de ejemplo no encontrada")
+        
+        # Leer el contenido del archivo
+        with open(template_file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Devolver el contenido como HTML
+        return Response(
+            content=content,
+            media_type="text/html",
+            headers={"Content-Disposition": "inline; filename=boletin_template_example.html"}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error obteniendo plantilla de ejemplo: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error obteniendo plantilla de ejemplo")
+
 @app.get("/api/schedule/{schedule_id}")
 async def get_schedule(schedule_id: str):
     """API para obtener detalles de una tarea programada"""

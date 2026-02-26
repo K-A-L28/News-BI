@@ -568,7 +568,7 @@ body {
 .modal-content {
     background: var(--card-bg);
     border-radius: 0.75rem;
-    max-width: 50rem;
+    max-width: 80rem;
     width: 90%;
     max-height: 80vh;
     overflow-y: auto;
@@ -1416,6 +1416,177 @@ body {
 .logout-btn:hover {
     background: #dc2626;
     transform: translateY(-1px);
+}
+
+/* Example Modal Styles */
+.example-container {
+    max-height: 70vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.example-header {
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.example-actions {
+    display: flex;
+    flex-direction: row;
+    gap: 2rem;
+    margin-top: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.btn-back {
+    background: transparent;
+    color: var(--text-primary);
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1.3rem;
+    transition: all 0.2s;
+    margin-bottom: 1rem;
+}
+
+.btn-back:hover {
+    color: #6c757d;
+    transform: translateY(-1px);
+}
+
+.action-buttons {
+    display: flex;
+    flex-direction: row;
+    gap: 0.5rem;
+    margin-left: auto;
+}
+
+.code-container {
+    flex: 1;
+    overflow: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 0.375rem;
+    background: #f8f9fa;
+}
+
+.code-container pre {
+    margin: 0;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: 1.3rem;
+    line-height: 1.5;
+}
+
+.code-container code {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    background: transparent !important;
+}
+
+.loading-example {
+    text-align: center;
+    padding: 3rem;
+    color: var(--text-secondary);
+}
+
+.loading-example i {
+    font-size: 2rem;
+    margin-bottom: 1rem;
+}
+
+.error-message {
+    text-align: center;
+    padding: 2rem;
+    color: var(--error-color);
+}
+
+.error-message i {
+    font-size: 2rem;
+    margin-bottom: 1rem;
+}
+
+/* Syntax highlighting theme */
+.hljs {
+    background: #f8f9fa !important;
+    color: #24292e;
+}
+
+.hljs-comment,
+.hljs-quote {
+    color: #6a737d;
+    font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-subst {
+    color: #d73a49;
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag .hljs-attr {
+    color: #005cc5;
+}
+
+.hljs-string,
+.hljs-doctag {
+    color: #032f62;
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-selector-id {
+    color: #6f42c1;
+    font-weight: bold;
+}
+
+.hljs-type,
+.hljs-class .hljs-title {
+    color: #6f42c1;
+}
+
+.hljs-tag,
+.hljs-name,
+.hljs-attribute {
+    color: #22863a;
+    font-weight: normal;
+}
+
+.hljs-regexp,
+.hljs-link {
+    color: #e36209;
+}
+
+.hljs-symbol,
+.hljs-bullet,
+.hljs-built_in,
+.hljs-builtin-name {
+    color: #e36209;
+}
+
+.hljs-meta,
+.hljs-deletion {
+    color: #b31d28;
+}
+
+.hljs-addition {
+    color: #22863a;
+}
+
+.hljs-emphasis {
+    font-style: italic;
+}
+
+.hljs-strong {
+    font-weight: bold;
 }
 
 .logout-btn:active {

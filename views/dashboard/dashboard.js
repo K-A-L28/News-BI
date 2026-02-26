@@ -56,10 +56,13 @@ document.addEventListener('input', (e) => {
 
 class Dashboard {
     constructor() {
-        this.refreshInterval = null;
+        this.currentPage = 'dashboard';
         this.editingSchedule = false; // Flag to block refresh when editing
         this.retryInProgress = new Set(); // Track which retries are in progress
         this.currentUser = null;
+        this.modalStack = []; // Stack to manage multiple modals
+        this.savedFormState = null; // Save form state when viewing examples
+        this.originalFormHTML = null; // Store original form HTML
         this.checkAuthentication().then(() => {
             this.init();
         });
@@ -1098,7 +1101,7 @@ class Dashboard {
     }
 
     showUploadBulletinModal() {
-        this.showModal('Cargar Nuevo Boletín', `
+        const formHTML = `
             <form id="upload-bulletin-form">
                 <div class="form-group">
                     <label for="bulletin-name">Nombre del Boletín:</label>
@@ -1131,6 +1134,11 @@ class Dashboard {
                         <span id="script-file-name">Haz clic para seleccionar el script Python</span>
                     </div>
                     <small class="form-text">El script debe implementar la lógica de extracción de datos y envio de correo (obligatorio)</small>
+                    <div class="mt-2">
+                        <button type="button" class="btn btn-sm btn-outline-info" onclick="dashboard.showExampleModal()">
+                            <i class="fas fa-eye"></i> Ver ejemplo
+                        </button>
+                    </div>
                 </div>
                 
                 <div class="form-group">
@@ -1149,6 +1157,11 @@ class Dashboard {
                         <span id="template-file-name">Haz clic para seleccionar la plantilla HTML</span>
                     </div>
                     <small class="form-text">Plantilla para el contenido del boletín (obligatorio)</small>
+                    <div class="mt-2">
+                        <button type="button" class="btn btn-sm btn-outline-info" onclick="dashboard.showTemplateExampleModal()">
+                            <i class="fas fa-eye"></i> Ver ejemplo
+                        </button>
+                    </div>
                 </div>
                 
                 <div class="form-group">
@@ -1168,39 +1181,61 @@ class Dashboard {
                         <i class="fas fa-times"></i> Cancelar
                     </button>
                 </div>
-            </form>
-        `);
+            </form>`;
+        
+        // Store the original form HTML
+        this.originalFormHTML = formHTML;
+        
+        this.showModal('Cargar Nuevo Boletín', formHTML);
         
         // Cargar listas de correos en el select
         this.loadEmailListsForBulletin();
         
-        // Agregar event listener al formulario
-        document.getElementById('upload-bulletin-form').addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.uploadBulletin();
-        });
+        // Setup form submission and validation listeners
+        this.setupFormEventListeners();
+    }
+
+    setupFormEventListeners() {
+        // Setup form submission
+        const form = document.getElementById('upload-bulletin-form');
+        if (form) {
+            form.onsubmit = (e) => {
+                e.preventDefault();
+                this.uploadBulletin();
+            };
+        }
         
-        // Agregar validación en tiempo real para el nombre del boletín
+        // Setup bulletin name validation
+        const bulletinNameInput = document.getElementById('bulletin-name');
+        if (bulletinNameInput) {
+            bulletinNameInput.addEventListener('input', () => {
+                this.validateBulletinName();
+            });
+        }
+    }
+
+    validateBulletinName() {
         const bulletinNameInput = document.getElementById('bulletin-name');
         const bulletinNameError = document.getElementById('bulletin-name-error');
         
-        bulletinNameInput.addEventListener('input', () => {
-            const value = bulletinNameInput.value.trim();
-            const validNamePattern = /^[a-zA-Z0-9\sáéíóúÁÉÍÓÚñÑüÜ\-_()]+$/;
-            
-            if (value && !validNamePattern.test(value)) {
-                bulletinNameInput.style.borderColor = '#dc3545';
-                bulletinNameError.style.display = 'block';
-                bulletinNameError.textContent = 'El nombre contiene caracteres no permitidos';
-            } else {
-                bulletinNameInput.style.borderColor = '';
-                bulletinNameError.style.display = 'none';
-            }
-        });
+        if (!bulletinNameInput || !bulletinNameError) return;
+        
+        const value = bulletinNameInput.value.trim();
+        // Allow letters, numbers, spaces, hyphens, underscores, parentheses, and accented characters
+        const validPattern = /^[a-zA-Z0-9\s\-_()áéíóúÁÉÍÓÚñÑüÜ]+$/;
+        
+        if (!validPattern.test(value)) {
+            bulletinNameInput.style.borderColor = '#dc3545';
+            bulletinNameError.style.display = 'block';
+            bulletinNameError.textContent = 'El nombre contiene caracteres no permitidos';
+        } else {
+            bulletinNameInput.style.borderColor = '';
+            bulletinNameError.style.display = 'none';
+        }
     }
-    
+
     loadEmailListsForBulletin() {
-        fetch('/api/email-lists')
+        return fetch('/api/email-lists')
             .then(response => response.json())
             .then(lists => {
                 const select = document.getElementById('email-list-select');
@@ -1213,15 +1248,17 @@ class Dashboard {
                         select.appendChild(option);
                     });
                 }
+                return lists; // Return lists for chaining
             })
             .catch(error => {
                 const select = document.getElementById('email-list-select');
                 if (select) {
                     select.innerHTML = '<option value="">Error cargando listas</option>';
                 }
+                throw error; // Re-throw error
             });
     }
-    
+
     selectFile(type) {
         const input = document.getElementById(`${type}-input`);
         input.click();
@@ -1569,6 +1606,345 @@ class Dashboard {
     cancelEdit() {
         this.closeModal();
         this.loadData(); // Refresh data after canceling
+    }
+
+    async showExampleModal() {
+        try {
+            // Save current form state before showing example
+            this.savedFormState = this.saveFormState();
+            
+            // Show loading modal first
+            this.showModal('Ejemplo de Script Python', `
+                <div class="loading-example">
+                    <i class="fas fa-spinner fa-spin"></i> Cargando ejemplo...
+                </div>
+            `);
+
+            // Fetch the example file content
+            const response = await fetch('/api/example-script');
+            
+            if (!response.ok) {
+                throw new Error('Error cargando el ejemplo');
+            }
+            
+            const exampleContent = await response.text();
+            
+            // Show the content with syntax highlighting
+            this.showModal('Ejemplo de Script Python', `
+                <div class="example-container">
+                    <div class="example-header">
+                        <button class="btn-back" onclick="dashboard.backToBulletinForm()">
+                            <i class="fas fa-arrow-left"></i> Volver al formulario
+                        </button>
+                        <p class="text-muted mb-3">
+                            <i class="fas fa-info-circle"></i> 
+                            Este es un ejemplo completo de cómo debe estructurarse tu script Python para generar boletines.
+                            Puedes copiar este código y adaptarlo a tus necesidades.
+                        </p>
+                        <div class="example-actions">
+                            <div class="action-buttons">
+                                <button class="btn btn-sm btn-primary" onclick="dashboard.copyExampleCode()">
+                                    <i class="fas fa-copy"></i> Copiar código
+                                </button>
+                                <button class="btn btn-sm btn-secondary" onclick="dashboard.downloadExample()">
+                                    <i class="fas fa-download"></i> Descargar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="code-container">
+                        <pre><code class="language-python" id="example-code">${this.escapeHtml(exampleContent)}</code></pre>
+                    </div>
+                </div>
+            `);
+            
+            // Apply syntax highlighting
+            if (typeof hljs !== 'undefined') {
+                hljs.highlightElement(document.getElementById('example-code'));
+            }
+            
+        } catch (error) {
+            console.error('Error loading example:', error);
+            this.showModal('Error', `
+                <div class="error-message">
+                    <i class="fas fa-exclamation-triangle text-danger"></i>
+                    <p>No se pudo cargar el ejemplo de script. Por favor, inténtalo más tarde.</p>
+                </div>
+            `);
+        }
+    }
+
+    copyExampleCode() {
+        const codeElement = document.getElementById('example-code');
+        if (codeElement) {
+            const textArea = document.createElement('textarea');
+            textArea.value = codeElement.textContent;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            
+            this.showToast('Código copiado al portapapeles', 'success', 3000);
+        }
+    }
+
+    async downloadExample() {
+        try {
+            const response = await fetch('/api/example-script');
+            if (!response.ok) {
+                throw new Error('Error descargando el ejemplo');
+            }
+            
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'main_example.py';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            this.showToast('Ejemplo descargado correctamente', 'success', 3000);
+        } catch (error) {
+            console.error('Error downloading example:', error);
+            this.showToast('Error descargando el ejemplo', 'error', 3000);
+        }
+    }
+
+    async showTemplateExampleModal() {
+        try {
+            // Save current form state before showing example
+            this.savedFormState = this.saveFormState();
+            
+            // Show loading modal first
+            this.showModal('Ejemplo de Plantilla HTML', `
+                <div class="loading-example">
+                    <i class="fas fa-spinner fa-spin"></i> Cargando ejemplo...
+                </div>
+            `);
+
+            // Fetch the template example file content
+            const response = await fetch('/api/example-template');
+            
+            if (!response.ok) {
+                throw new Error('Error cargando el ejemplo');
+            }
+            
+            const exampleContent = await response.text();
+            
+            // Show the content with syntax highlighting
+            this.showModal('Ejemplo de Plantilla HTML', `
+                <div class="example-container">
+                    <div class="example-header">
+                        <button class="btn-back" onclick="dashboard.backToBulletinForm()">
+                            <i class="fas fa-arrow-left"></i> Volver al formulario
+                        </button>
+                        <p class="text-muted mb-3">
+                            <i class="fas fa-info-circle"></i> 
+                            Este es un ejemplo completo de cómo debe estructurarse tu plantilla HTML para el boletín.
+                            Puedes copiar este código y adaptarlo a tus necesidades.
+                        </p>
+                        <div class="example-actions">
+                            <div class="action-buttons">
+                                <button class="btn btn-sm btn-primary" onclick="dashboard.copyTemplateExampleCode()">
+                                    <i class="fas fa-copy"></i> Copiar código
+                                </button>
+                                <button class="btn btn-sm btn-secondary" onclick="dashboard.downloadTemplateExample()">
+                                    <i class="fas fa-download"></i> Descargar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="code-container">
+                        <pre><code class="language-html" id="template-example-code">${this.escapeHtml(exampleContent)}</code></pre>
+                    </div>
+                </div>
+            `);
+            
+            // Apply syntax highlighting
+            if (typeof hljs !== 'undefined') {
+                hljs.highlightElement(document.getElementById('template-example-code'));
+            }
+            
+        } catch (error) {
+            console.error('Error loading template example:', error);
+            this.showModal('Error', `
+                <div class="error-message">
+                    <i class="fas fa-exclamation-triangle text-danger"></i>
+                    <p>No se pudo cargar el ejemplo de plantilla. Por favor, inténtalo más tarde.</p>
+                </div>
+            `);
+        }
+    }
+
+    copyTemplateExampleCode() {
+        const codeElement = document.getElementById('template-example-code');
+        if (codeElement) {
+            const textArea = document.createElement('textarea');
+            textArea.value = codeElement.textContent;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            
+            this.showToast('Código de plantilla copiado al portapapeles', 'success', 3000);
+        }
+    }
+
+    async downloadTemplateExample() {
+        try {
+            const response = await fetch('/api/example-template');
+            if (!response.ok) {
+                throw new Error('Error descargando el ejemplo');
+            }
+            
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'boletin_template_example.html';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            this.showToast('Plantilla ejemplo descargada correctamente', 'success', 3000);
+        } catch (error) {
+            console.error('Error downloading template example:', error);
+            this.showToast('Error descargando la plantilla ejemplo', 'error', 3000);
+        }
+    }
+
+    saveFormState() {
+        // Get the current form from the DOM (not from getBulletinFormContent)
+        const bulletinNameInput = document.getElementById('bulletin-name');
+        const emailListSelect = document.getElementById('email-list-select');
+        const emailTemplateFileName = document.getElementById('email-template-file-name');
+        const scriptFileName = document.getElementById('script-file-name');
+        const queryFileName = document.getElementById('query-file-name');
+        const templateFileName = document.getElementById('template-file-name');
+        const imagesFileName = document.getElementById('images-file-name');
+        
+        const state = {
+            bulletinName: bulletinNameInput?.value || '',
+            emailList: emailListSelect?.value || '',
+            emailTemplateFileName: emailTemplateFileName?.textContent || 'Haz clic para seleccionar la plantilla HTML del correo',
+            scriptFileName: scriptFileName?.textContent || 'Haz clic para seleccionar el script Python',
+            queryFileName: queryFileName?.textContent || 'Haz clic para seleccionar uno o más archivos JSON',
+            templateFileName: templateFileName?.textContent || 'Haz clic para seleccionar la plantilla HTML',
+            imagesFileName: imagesFileName?.textContent || 'Haz clic para seleccionar una o más imágenes'
+        };
+        
+        console.log('Saving form state:', state); // Debug log
+        return state;
+    }
+
+    restoreFormState(state) {
+        if (!state) return;
+        
+        // First load email lists, then restore the selected value
+        this.loadEmailListsForBulletin().then(() => {
+            setTimeout(() => {
+                // Restore form values
+                const bulletinNameInput = document.getElementById('bulletin-name');
+                if (bulletinNameInput && state.bulletinName) {
+                    bulletinNameInput.value = state.bulletinName;
+                }
+                
+                const emailListSelect = document.getElementById('email-list-select');
+                if (emailListSelect && state.emailList) {
+                    emailListSelect.value = state.emailList;
+                }
+                
+                // Restore file names
+                const emailTemplateFileName = document.getElementById('email-template-file-name');
+                if (emailTemplateFileName && state.emailTemplateFileName) {
+                    emailTemplateFileName.textContent = state.emailTemplateFileName;
+                }
+                
+                const scriptFileName = document.getElementById('script-file-name');
+                if (scriptFileName && state.scriptFileName) {
+                    scriptFileName.textContent = state.scriptFileName;
+                }
+                
+                const queryFileName = document.getElementById('query-file-name');
+                if (queryFileName && state.queryFileName) {
+                    queryFileName.textContent = state.queryFileName;
+                }
+                
+                const templateFileName = document.getElementById('template-file-name');
+                if (templateFileName && state.templateFileName) {
+                    templateFileName.textContent = state.templateFileName;
+                }
+                
+                const imagesFileName = document.getElementById('images-file-name');
+                if (imagesFileName && state.imagesFileName) {
+                    imagesFileName.textContent = state.imagesFileName;
+                }
+            }, 200); // Give more time for lists to load
+        });
+    }
+
+    backToBulletinForm() {
+        // Apply fade-out effect to current content
+        const modalBody = document.getElementById('modal-body');
+        const modalTitle = document.getElementById('modal-title');
+        
+        // Apply instant fade transition
+        modalBody.style.opacity = '0';
+        modalBody.style.transform = 'scale(0.98)';
+        
+        // Change content instantly after a very short delay
+        setTimeout(() => {
+            modalTitle.textContent = 'Cargar Nuevo Boletín';
+            
+            // Use the stored original form HTML instead of recreating it
+            if (this.originalFormHTML) {
+                modalBody.innerHTML = this.originalFormHTML;
+            } else {
+                // Fallback: regenerate the form HTML
+                modalBody.innerHTML = this.getBulletinFormContent();
+            }
+            
+            // Fade back in
+            modalBody.style.opacity = '1';
+            modalBody.style.transform = 'scale(1)';
+            
+            // Restore the saved form state
+            this.restoreFormState(this.savedFormState);
+            
+            // Initialize the form with full functionality
+            this.initializeBulletinForm();
+        }, 50); // Very short delay for smooth transition
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    initializeBulletinForm() {
+        // Load email lists
+        this.loadEmailListsForBulletin();
+        
+        // Setup form submission
+        const form = document.getElementById('upload-bulletin-form');
+        if (form) {
+            form.onsubmit = (e) => {
+                e.preventDefault();
+                this.uploadBulletin();
+            };
+        }
+        
+        // Setup bulletin name validation
+        const bulletinNameInput = document.getElementById('bulletin-name');
+        if (bulletinNameInput) {
+            bulletinNameInput.addEventListener('input', () => {
+                this.validateBulletinName();
+            });
+        }
     }
 
     // Toast Methods
