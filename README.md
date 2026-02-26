@@ -53,6 +53,7 @@ News BI/
 ├── scripts/              # Scripts de mantenimiento
 │   └── dev/              # Scripts de desarrollo
 ├── docs/                 # Documentación
+├── examples_for_bolletin/   # Archivos de ejemplo para boletines
 ├── images/               # Imágenes del sistema
 ├── temp/                 # Archivos temporales
 ├── main.py               # Punto de entrada principal
@@ -226,17 +227,6 @@ Para reportar problemas o solicitar ayuda:
 - Revisar la documentación en `docs/`
 - Consultar los logs del sistema para diagnóstico
 
-## 🔄 Versiones
-
-- **v1.9.9** - Versión version avanzada con mejoras en la interfaz y funcionalidades
-- Se implementaron nuevas funciones para mejora la UX (experiencia de usuario) y se corrijen errores de funcionalidad
-
-- **Se paso por alto el versionamiento, eso explica el avance tan grande entre versiones**
-
-- **v1.0.0** - Versión inicial con funcionalidades completas
-- Sistema de auditoría implementado
-- Integración con Microsoft Azure AD
-- Panel de administración responsivo
 
 ## 🔄 Versiones
 Ejemplo:
