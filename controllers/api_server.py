@@ -1264,8 +1264,7 @@ async def save_settings(request: Request):
                         config_key=key,
                         config_value=str_value,
                         config_type=config_info['type'],
-                        description=config_info['description'],
-                        created_by=admin_user.user_id
+                        description=config_info['description']
                     )
                     db.add(new_config)
                     value_changed = True

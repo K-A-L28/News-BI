@@ -817,7 +817,6 @@ class SystemEngine:
         admin_user = db.query(User).filter(User.email == "admin@system.com").first()
         if not admin_user:
             admin_user = User(
-                external_id="system_admin",
                 email="admin@system.com",
                 full_name="System Admin",
                 role="ADMIN"
@@ -1474,7 +1473,6 @@ class PythonScriptWrapper:
         admin_user = db.query(User).filter(User.email == "admin@system.com").first()
         if not admin_user:
             admin_user = User(
-                external_id="system_admin",
                 email="admin@system.com",
                 full_name="System Admin",
                 role="ADMIN"

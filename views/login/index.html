@@ -196,11 +196,18 @@
         </div>
 
         <div class="footer">
-            <p>&copy; 2026 NewsPilot. Todos los derechos reservados.</p>
+            <p>&copy; <span class="currentYear">2024</span> News BI. Todos los derechos reservados.</p>
         </div>
     </div>
 
     <script>
+        // Script para mostrar el año actual
+        const currentYearElements = document.getElementsByClassName('currentYear');
+        const currentYear = new Date().getFullYear();
+        for (let i = 0; i < currentYearElements.length; i++) {
+            currentYearElements[i].textContent = currentYear;
+        }
+
         // Limpiar cookies de sesión al cargar la página de login
         document.addEventListener('DOMContentLoaded', function() {
             document.cookie = 'session_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
