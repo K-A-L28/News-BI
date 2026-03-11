@@ -81,14 +81,14 @@ body {
 }
 
 .logo i {
-    color: var(--primary-color);
-    font-size: 1.5rem;
+    font-size: 3rem;
+    color: #667eea;
 }
 
 .logo h1 {
-    font-size: 2.4rem;
-    font-weight: 700;
-    color: var(--text-primary);
+    color: #333;
+    font-size: 1.8rem;
+    font-weight: 600;
 }
 
 .header-info {

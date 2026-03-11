@@ -7,3 +7,6 @@ __pycache__/
 
 # Ignorar variables de entorno
 .env
+
+# Ignorar base de datos
+boletines_v2.db

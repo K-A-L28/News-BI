@@ -28,7 +28,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Inicializar FastAPI
-app = FastAPI(title="Dashboard Boletines API", version="1.0.0")
+app = FastAPI(title="Dashboard Boletines API", version="1.9.9")
 
 # Montar archivos estáticos
 app.mount("/static", StaticFiles(directory="views/dashboard"), name="static")
