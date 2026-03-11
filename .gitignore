@@ -9,4 +9,6 @@ __pycache__/
 .env
 
 # Ignorar base de datos
-boletines_v2.db
+*.db
+*.sqlite
+*.sqlite3
