@@ -16,6 +16,8 @@ News BI es un sistema completo para la gestión y automatización de boletines i
 - **Programación Automática**: Configuración de horarios de envío automáticos
 - **Plantillas HTML**: Soporte para plantillas de correo personalizables
 - **Gestión de Contactos**: Importación de listas de correos desde archivos CSV
+- **Gestión de Usuarios**: Registro, edición y administración de usuarios del sistema
+- **Control de Acceso por Roles**: Sistema de permisos con roles (ADMIN, DEVELOPER, USER)
 - **Autenticación Segura**: Integración con Microsoft Azure AD
 - **Panel de Administración**: Interfaz web moderna y responsiva
 - **Sistema de Auditoría**: Registro completo de todas las acciones del sistema
@@ -159,7 +161,17 @@ python -m controllers.worker
 - **Auditoría**: Consulta el registro completo de acciones
 - **Ejecuciones**: Revisa el historial de envíos realizados
 
-#### 🔧 Configuración del Sistema
+#### � Gestión de Usuarios y Roles
+- **Registro de Usuarios**: Crear nuevos usuarios desde el panel de administración
+- **Edición de Usuarios**: Modificar datos y roles de usuarios existentes
+- **Roles del Sistema**:
+  - **ADMIN**: Acceso total, gestión de usuarios, configuración avanzada
+  - **DEVELOPER**: Acceso administrativo, gestión de boletines
+  - **USER**: Acceso de solo lectura, visualización de estadísticas
+- **Jerarquía de Permisos**: Control granular según el rol asignado
+- **Organigrama Empresarial**: Gestión de empresas, sedes y áreas
+
+#### �🔧 Configuración del Sistema
 - **Credenciales**: Configura integraciones con servicios externos
 - **Dominios Permitidos**: Define dominios autorizados para correos
 - **Modo Prueba**: Activa/desactiva el modo de pruebas
