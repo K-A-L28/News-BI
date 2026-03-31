@@ -2,6 +2,63 @@
 
 let dashboard = null;
 
+// Variables globales para gestión de usuarios
+let allUsers = [];
+let currentPage = 1;
+let usersPerPage = 6;
+let filteredUsers = [];
+
+// Función global para manejar el registro de usuarios
+function handleUserRegistrationClick() {
+    // Limpiar el formulario antes de mostrar el modal
+    const form = document.getElementById('user-registration-form');
+    if (form) {
+        form.reset();
+        
+        // Limpiar campo oculto de ID si existe
+        const userIdField = document.getElementById('user-id');
+        if (userIdField) {
+            userIdField.remove();
+        }
+        
+        // Restaurar atributos del campo de correo para modo de registro
+        const emailField = document.getElementById('user-email');
+        if (emailField) {
+            emailField.readOnly = false;
+            emailField.style.backgroundColor = '';
+            emailField.style.cursor = '';
+            emailField.setAttribute('required', 'required');
+        }
+        
+        // Restaurar título del modal
+        const modalTitle = document.querySelector('#user-registration-modal .modal-header h2');
+        if (modalTitle) {
+            modalTitle.innerHTML = '<i class="fas fa-user-plus"></i> Registrar Nuevo Usuario';
+        }
+        
+        // Restaurar texto del botón de submit
+        const submitBtn = document.querySelector('#user-registration-form button[type="submit"]');
+        if (submitBtn) {
+            submitBtn.innerHTML = '<i class="fas fa-save"></i> Registrar Usuario';
+        }
+    }
+    
+    if (typeof showUserRegistration === 'function') {
+        showUserRegistration();
+    } else {
+        // Método alternativo si la función no está cargada
+        const modal = document.getElementById('user-registration-modal');
+        if (modal) {
+            modal.style.display = 'block';
+            document.body.style.overflow = 'hidden';
+            console.log('Modal de registro de usuario abierto manualmente');
+        } else {
+            console.error('Modal de registro de usuario no encontrado');
+            alert('Error: No se pudo abrir el formulario de registro de usuario');
+        }
+    }
+}
+
 // Interceptor global para manejar sesiones expiradas
 const originalFetch = window.fetch;
 window.fetch = async function(...args) {
@@ -2860,3 +2917,1040 @@ Dashboard.prototype.downloadAuditLogs = async function() {
         this.showToast(error.message || 'Error descargando registros de auditoría', 'error');
     }
 };
+
+// Funciones para Registro de Usuarios
+function showUserRegistration() {
+    const modal = document.getElementById('user-registration-modal');
+    modal.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+    
+    // Mostrar formulario de registro, ocultar formulario de edición
+    document.getElementById('user-registration-form').style.display = 'block';
+    document.getElementById('user-edit-form').style.display = 'none';
+    
+    // Cambiar título del modal
+    const modalTitle = modal.querySelector('.modal-header h2');
+    if (modalTitle) {
+        modalTitle.innerHTML = '<i class="fas fa-user-plus"></i> Registrar Nuevo Usuario';
+    }
+    
+    // Limpiar formulario de registro
+    document.getElementById('user-registration-form').reset();
+    
+    // Cargar datos iniciales para el formulario de registro
+    loadEmpresas();
+    
+    // Agregar event listener al formulario de registro
+    const registerForm = document.getElementById('user-registration-form');
+    if (registerForm) {
+        registerForm.removeEventListener('submit', handleUserRegistration);
+        registerForm.addEventListener('submit', handleUserRegistration);
+    }
+    
+    // Agregar event listener para validación de email
+    const emailInput = document.getElementById('user-email');
+    if (emailInput) {
+        emailInput.removeEventListener('blur', validateEmailDomain);
+        emailInput.addEventListener('blur', validateEmailDomain);
+    }
+    
+    // Agregar event listener para cambio de empresa
+    const empresaSelect = document.getElementById('user-empresa');
+    if (empresaSelect) {
+        empresaSelect.removeEventListener('change', handleEmpresaChange);
+        empresaSelect.addEventListener('change', handleEmpresaChange);
+    }
+    
+    // Agregar event listener para cambio de sede
+    const sedeSelect = document.getElementById('user-sede');
+    if (sedeSelect) {
+        sedeSelect.removeEventListener('change', handleSedeChange);
+        sedeSelect.addEventListener('change', handleSedeChange);
+    }
+}
+
+function closeUserRegistrationModal() {
+    const modal = document.getElementById('user-registration-modal');
+    modal.style.display = 'none';
+    document.body.style.overflow = 'auto';
+    
+    // Limpiar formulario de registro
+    const form = document.getElementById('user-registration-form');
+    form.reset();
+    
+    // Limpiar errores
+    document.getElementById('email-error').style.display = 'none';
+    
+    // Resetear selects
+    document.getElementById('user-sede').disabled = true;
+    document.getElementById('user-area').disabled = true;
+    document.getElementById('add-sede-btn').disabled = true;
+    document.getElementById('add-area-btn').disabled = true;
+}
+
+// Función para mostrar formulario de edición
+function showUserEdit() {
+    const modal = document.getElementById('user-registration-modal');
+    modal.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+    
+    // Ocultar formulario de registro, mostrar formulario de edición
+    document.getElementById('user-registration-form').style.display = 'none';
+    document.getElementById('user-edit-form').style.display = 'block';
+    
+    // Cambiar título del modal
+    const modalTitle = modal.querySelector('.modal-header h2');
+    if (modalTitle) {
+        modalTitle.innerHTML = '<i class="fas fa-user-edit"></i> Editar Usuario';
+    }
+    
+    // Agregar event listener al formulario de edición
+    const editForm = document.getElementById('user-edit-form');
+    if (editForm) {
+        editForm.removeEventListener('submit', handleUserEdit);
+        editForm.addEventListener('submit', handleUserEdit);
+    }
+}
+
+function closeUserEditModal() {
+    const modal = document.getElementById('user-registration-modal');
+    modal.style.display = 'none';
+    document.body.style.overflow = 'auto';
+    
+    // Limpiar formulario de edición
+    const form = document.getElementById('user-edit-form');
+    form.reset();
+    
+    // Resetear a modo registro
+    document.getElementById('user-registration-form').style.display = 'block';
+    document.getElementById('user-edit-form').style.display = 'none';
+}
+
+function validateEmailDomain() {
+    const emailInput = document.getElementById('user-email');
+    const emailError = document.getElementById('email-error');
+    
+    // Verificar que los elementos existan
+    if (!emailInput) {
+        console.log('Campo user-email no encontrado');
+        return true; // Si no existe el elemento, no validar
+    }
+    
+    if (!emailError) {
+        console.log('Campo email-error no encontrado');
+        return true; // Si no existe el elemento, no validar
+    }
+    
+    const email = emailInput.value;
+    
+    // Verificar que email no sea undefined antes de hacer trim
+    if (!email || typeof email !== 'string') {
+        emailError.style.display = 'none';
+        return true;
+    }
+    
+    const emailTrimmed = email.trim();
+    
+    if (!emailTrimmed) {
+        emailError.style.display = 'none';
+        return true;
+    }
+    
+    // Validar dominio @clinicassanrafael.com
+    if (!emailTrimmed.endsWith('@clinicassanrafael.com')) {
+        emailError.textContent = 'Usuario Administrador, recuerde que los correos que no son del dominio @clinicassanrafael.com deben ser invitados en Microsoft Entra ID';
+        emailError.style.display = 'block';
+        emailError.style.color = '#ffc107'; // Amarillo
+        return false;
+    }
+    
+    emailError.style.display = 'none';
+    return true;
+}
+
+async function loadEmpresas() {
+    try {
+        const response = await fetch('/api/empresas', {
+            credentials: 'include'
+        });
+        
+        if (!response.ok) {
+            throw new Error('Error cargando empresas');
+        }
+        
+        const empresas = await response.json();
+        const empresaSelect = document.getElementById('user-empresa');
+        
+        // Limpiar opciones existentes
+        empresaSelect.innerHTML = '<option value="">Seleccionar empresa...</option>';
+        
+        // Agregar opción por defecto "Clinica San Rafael" si no existe
+        const clinicaSanRafael = empresas.find(e => e.nombre === 'Clinica San Rafael');
+        if (!clinicaSanRafael) {
+            // Crear empresa por defecto si no existe
+            await createDefaultEmpresa();
+            // Recargar empresas
+            await loadEmpresas();
+            return;
+        }
+        
+        // Agregar empresas al select
+        empresas.forEach(empresa => {
+            if (empresa.activa) {
+                const option = document.createElement('option');
+                option.value = empresa.empresa_id;
+                option.textContent = empresa.nombre;
+                empresaSelect.appendChild(option);
+            }
+        });
+        
+        // Seleccionar "Clinica San Rafael" por defecto
+        const defaultOption = Array.from(empresaSelect.options).find(opt => opt.textContent === 'Clinica San Rafael');
+        if (defaultOption) {
+            empresaSelect.value = defaultOption.value;
+            handleEmpresaChange();
+        }
+        
+    } catch (error) {
+        console.error('Error cargando empresas:', error);
+        showToast('Error cargando empresas', 'error');
+    }
+}
+
+async function createDefaultEmpresa() {
+    try {
+        const response = await fetch('/api/empresas', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                nombre: 'Clinica San Rafael',
+                dominio_correo: 'clinicassanrafael.com'
+            }),
+            credentials: 'include'
+        });
+        
+        if (!response.ok) {
+            throw new Error('Error creando empresa por defecto');
+        }
+        
+    } catch (error) {
+        console.error('Error creando empresa por defecto:', error);
+    }
+}
+
+async function handleEmpresaChange() {
+    const empresaSelect = document.getElementById('user-empresa');
+    const sedeSelect = document.getElementById('user-sede');
+    const areaSelect = document.getElementById('user-area');
+    const addSedeBtn = document.getElementById('add-sede-btn');
+    const addAreaBtn = document.getElementById('add-area-btn');
+    
+    const empresaId = empresaSelect.value;
+    
+    // Resetear selects dependientes
+    sedeSelect.innerHTML = '<option value="">Seleccionar sede...</option>';
+    areaSelect.innerHTML = '<option value="">Seleccionar área...</option>';
+    
+    if (!empresaId) {
+        sedeSelect.disabled = true;
+        areaSelect.disabled = true;
+        addSedeBtn.disabled = true;
+        addAreaBtn.disabled = true;
+        return;
+    }
+    
+    try {
+        // Cargar sedes de la empresa seleccionada
+        const response = await fetch(`/api/empresas/${empresaId}/sedes`, {
+            credentials: 'include'
+        });
+        
+        if (!response.ok) {
+            throw new Error('Error cargando sedes');
+        }
+        
+        const sedes = await response.json();
+        
+        // Agregar sedes al select
+        sedes.forEach(sede => {
+            if (sede.activa) {
+                const option = document.createElement('option');
+                option.value = sede.sede_id;
+                option.textContent = sede.nombre;
+                sedeSelect.appendChild(option);
+            }
+        });
+        
+        sedeSelect.disabled = false;
+        addSedeBtn.disabled = false;
+        
+    } catch (error) {
+        console.error('Error cargando sedes:', error);
+        showToast('Error cargando sedes', 'error');
+    }
+}
+
+async function handleSedeChange() {
+    const sedeSelect = document.getElementById('user-sede');
+    const areaSelect = document.getElementById('user-area');
+    const addAreaBtn = document.getElementById('add-area-btn');
+    
+    const sedeId = sedeSelect.value;
+    console.log('handleSedeChange llamado con sedeId:', sedeId);
+    
+    // Resetear área
+    areaSelect.innerHTML = '<option value="">Seleccionar área...</option>';
+    
+    if (!sedeId) {
+        areaSelect.disabled = true;
+        addAreaBtn.disabled = true;
+        return;
+    }
+    
+    try {
+        console.log('Cargando áreas para sede:', sedeId);
+        // Cargar áreas de la sede seleccionada
+        const response = await fetch(`/api/sedes/${sedeId}/areas`, {
+            credentials: 'include'
+        });
+        
+        if (!response.ok) {
+            throw new Error('Error cargando áreas');
+        }
+        
+        const areas = await response.json();
+        console.log('Áreas recibidas:', areas);
+        
+        // Agregar áreas al select
+        areas.forEach(area => {
+            if (area.activa) {
+                const option = document.createElement('option');
+                option.value = area.area_id;
+                option.textContent = area.nombre;
+                areaSelect.appendChild(option);
+            }
+        });
+        
+        areaSelect.disabled = false;
+        addAreaBtn.disabled = false;
+        console.log('Áreas cargadas exitosamente');
+        
+    } catch (error) {
+        console.error('Error cargando áreas:', error);
+        showToast('Error cargando áreas', 'error');
+    }
+}
+
+function addNewEmpresa() {
+    document.getElementById('new-empresa-group').style.display = 'block';
+    document.getElementById('new-empresa-name').focus();
+}
+
+function cancelNewEmpresa() {
+    document.getElementById('new-empresa-group').style.display = 'none';
+    document.getElementById('new-empresa-name').value = '';
+}
+
+async function saveNewEmpresa() {
+    const nombre = document.getElementById('new-empresa-name').value.trim();
+    
+    if (!nombre) {
+        showToast('El nombre de la empresa es requerido', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/empresas', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ nombre }),
+            credentials: 'include'
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Error creando empresa');
+        }
+        
+        showToast('Empresa creada exitosamente', 'success');
+        cancelNewEmpresa();
+        
+        // Recargar empresas y seleccionar la nueva empresa
+        await loadEmpresas();
+        
+        // Seleccionar la nueva empresa creada
+        const empresaSelect = document.getElementById('user-empresa');
+        const newOption = Array.from(empresaSelect.options).find(opt => opt.textContent === nombre);
+        if (newOption) {
+            empresaSelect.value = newOption.value;
+            await handleEmpresaChange();
+        }
+        
+    } catch (error) {
+        console.error('Error creando empresa:', error);
+        showToast(error.message || 'Error creando empresa', 'error');
+    }
+}
+
+function addNewSede() {
+    document.getElementById('new-sede-group').style.display = 'block';
+    document.getElementById('new-sede-name').focus();
+}
+
+function cancelNewSede() {
+    document.getElementById('new-sede-group').style.display = 'none';
+    document.getElementById('new-sede-name').value = '';
+}
+
+async function saveNewSede() {
+    const nombre = document.getElementById('new-sede-name').value.trim();
+    const empresaId = document.getElementById('user-empresa').value;
+    
+    if (!nombre) {
+        showToast('El nombre de la sede es requerido', 'error');
+        return;
+    }
+    
+    if (!empresaId) {
+        showToast('Debe seleccionar una empresa primero', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/sedes', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ nombre, empresa_id: empresaId }),
+            credentials: 'include'
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Error creando sede');
+        }
+        
+        showToast('Sede creada exitosamente', 'success');
+        cancelNewSede();
+        
+        // Recargar sedes y seleccionar la nueva sede
+        await handleEmpresaChange();
+        
+        // Seleccionar la nueva sede creada
+        const sedeSelect = document.getElementById('user-sede');
+        const newOption = Array.from(sedeSelect.options).find(opt => opt.textContent === nombre);
+        if (newOption) {
+            sedeSelect.value = newOption.value;
+            await handleSedeChange();
+        }
+        
+    } catch (error) {
+        console.error('Error creando sede:', error);
+        showToast(error.message || 'Error creando sede', 'error');
+    }
+}
+
+function addNewArea() {
+    document.getElementById('new-area-group').style.display = 'block';
+    document.getElementById('new-area-name').focus();
+}
+
+function cancelNewArea() {
+    document.getElementById('new-area-group').style.display = 'none';
+    document.getElementById('new-area-name').value = '';
+}
+
+async function saveNewArea() {
+    const nombre = document.getElementById('new-area-name').value.trim();
+    const sedeId = document.getElementById('user-sede').value;
+    
+    if (!nombre) {
+        showToast('El nombre del área es requerido', 'error');
+        return;
+    }
+    
+    if (!sedeId) {
+        showToast('Debe seleccionar una sede primero', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/areas', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ nombre, sede_id: sedeId }),
+            credentials: 'include'
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Error creando área');
+        }
+        
+        showToast('Área creada exitosamente', 'success');
+        cancelNewArea();
+        
+        // Recargar áreas y seleccionar la nueva área
+        await handleSedeChange();
+        
+        // Seleccionar la nueva área creada
+        const areaSelect = document.getElementById('user-area');
+        const newOption = Array.from(areaSelect.options).find(opt => opt.textContent === nombre);
+        if (newOption) {
+            areaSelect.value = newOption.value;
+        }
+        
+    } catch (error) {
+        console.error('Error creando área:', error);
+        showToast(error.message || 'Error creando área', 'error');
+    }
+}
+
+async function handleUserRegistration(e) {
+    e.preventDefault();
+    
+    // Validar dominio del email
+    if (!validateEmailDomain()) {
+        showToast('El dominio del correo no es válido', 'error');
+        return;
+    }
+    
+    const formData = new FormData(e.target);
+    
+    // Modo registro - crear nuevo usuario
+    try {
+        const response = await fetch('/api/users/register', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                email: formData.get('email'),
+                full_name: formData.get('full_name'),
+                role: formData.get('role'),
+                empresa_id: formData.get('empresa'),
+                sede_id: formData.get('sede'),
+                area_id: formData.get('area')
+            }),
+            credentials: 'include'
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Error registrando usuario');
+        }
+        
+        showToast('Usuario registrado exitosamente', 'success');
+        closeUserRegistrationModal();
+        
+    } catch (error) {
+        console.error('Error registrando usuario:', error);
+        showToast(error.message || 'Error registrando usuario', 'error');
+    }
+}
+
+// Funciones para gestión de lista de usuarios
+function showUserList() {
+    const modal = document.getElementById('user-list-modal');
+    if (modal) {
+        modal.style.display = 'block';
+        document.body.style.overflow = 'hidden';
+        loadUsers();
+    }
+}
+
+function closeUserListModal() {
+    const modal = document.getElementById('user-list-modal');
+    if (modal) {
+        modal.style.display = 'none';
+        document.body.style.overflow = 'auto';
+    }
+}
+
+async function loadUsers() {
+    try {
+        document.getElementById('users-loading').style.display = 'block';
+        
+        const response = await fetch('/api/users', {
+            credentials: 'include'
+        });
+        
+        if (!response.ok) {
+            throw new Error('Error cargando usuarios');
+        }
+        
+        allUsers = await response.json();
+        filteredUsers = [...allUsers];
+        currentPage = 1;
+        
+        renderUsersTable();
+        updatePagination();
+        
+    } catch (error) {
+        console.error('Error cargando usuarios:', error);
+        showToast('Error cargando usuarios', 'error');
+    } finally {
+        document.getElementById('users-loading').style.display = 'none';
+    }
+}
+
+function renderUsersTable() {
+    const tbody = document.getElementById('users-tbody');
+    tbody.innerHTML = '';
+    
+    const startIndex = (currentPage - 1) * usersPerPage;
+    const endIndex = startIndex + usersPerPage;
+    const pageUsers = filteredUsers.slice(startIndex, endIndex);
+    
+    if (pageUsers.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="5" style="text-align: center; padding: 2rem; color: var(--text-secondary);">
+                    No se encontraron usuarios
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    pageUsers.forEach(user => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td title="${user.user_id}">${user.user_id.substring(0, 8)}...</td>
+            <td>${user.full_name}</td>
+            <td>${user.email}</td>
+            <td>
+                <span class="role-badge ${getRoleClass(user.role)}">${getRoleDisplayName(user.role)}</span>
+            </td>
+            <td>
+                <button class="btn-edit" onclick="editUser('${user.user_id}')" title="Editar usuario">
+                    <i class="fas fa-edit"></i> Editar
+                </button>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+    
+    // Actualizar contador
+    document.getElementById('user-count-info').textContent = 
+        `Mostrando ${pageUsers.length} de ${filteredUsers.length} usuarios`;
+}
+
+function getRoleClass(role) {
+    switch(role) {
+        case 'ADMIN': return 'role-admin';
+        case 'DEVELOPER': return 'role-developer';
+        case 'USER': return 'role-user';
+        default: return 'role-user';
+    }
+}
+
+function getRoleDisplayName(role) {
+    switch(role) {
+        case 'ADMIN': return 'Administrador';
+        case 'DEVELOPER': return 'Desarrollador';
+        case 'USER': return 'Usuario';
+        default: return role;
+    }
+}
+
+function updatePagination() {
+    const totalPages = Math.ceil(filteredUsers.length / usersPerPage);
+    
+    document.getElementById('current-page').textContent = currentPage;
+    document.getElementById('total-pages').textContent = totalPages || 1;
+    
+    document.getElementById('prev-page-btn').disabled = currentPage === 1;
+    document.getElementById('next-page-btn').disabled = currentPage >= totalPages;
+}
+
+function previousUserPage() {
+    if (currentPage > 1) {
+        currentPage--;
+        renderUsersTable();
+        updatePagination();
+    }
+}
+
+function nextUserPage() {
+    const totalPages = Math.ceil(filteredUsers.length / usersPerPage);
+    if (currentPage < totalPages) {
+        currentPage++;
+        renderUsersTable();
+        updatePagination();
+    }
+}
+
+function searchUsers() {
+    const searchTerm = document.getElementById('user-search').value.toLowerCase().trim();
+    
+    if (searchTerm === '') {
+        filteredUsers = [...allUsers];
+    } else {
+        filteredUsers = allUsers.filter(user => 
+            user.user_id.toLowerCase().includes(searchTerm) ||
+            user.full_name.toLowerCase().includes(searchTerm) ||
+            user.email.toLowerCase().includes(searchTerm) ||
+            user.role.toLowerCase().includes(searchTerm)
+        );
+    }
+    
+    currentPage = 1;
+    renderUsersTable();
+    updatePagination();
+}
+
+function editUser(userId) {
+    console.log('editUser llamado con userId:', userId);
+    
+    // Cerrar el modal de lista de usuarios primero
+    closeUserListModal();
+    
+    // Buscar el usuario en la lista cargada
+    const user = allUsers.find(u => u.user_id === userId);
+    console.log('Usuario encontrado:', user);
+    
+    if (!user) {
+        showToast('Usuario no encontrado', 'error');
+        return;
+    }
+    
+    // Mostrar el formulario de edición específico
+    showUserEdit();
+    
+    // Cargar los datos del usuario después de que el formulario esté visible
+    setTimeout(() => {
+        // Cargar los datos en el formulario de edición
+        const nameField = document.getElementById('edit-user-full-name');
+        const emailField = document.getElementById('edit-user-email');
+        const roleField = document.getElementById('edit-user-role');
+        const empresaField = document.getElementById('edit-user-empresa');
+        
+        if (nameField) nameField.value = user.full_name || '';
+        if (emailField) {
+            emailField.value = user.email;
+            console.log('Campo email configurado como readonly (formulario de edición)');
+        }
+        if (roleField) roleField.value = user.role;
+        
+        // Cargar empresas y luego seleccionar la del usuario
+        loadEmpresasForEdit().then(() => {
+            if (empresaField && user.empresa_id) {
+                empresaField.value = user.empresa_id;
+                handleEmpresaChangeEdit(); // Cargar sedes
+                setTimeout(() => {
+                    const sedeField = document.getElementById('edit-user-sede');
+                    if (sedeField && user.sede_id) {
+                        sedeField.value = user.sede_id;
+                        handleSedeChangeEdit(); // Cargar áreas
+                        setTimeout(() => {
+                            const areaField = document.getElementById('edit-user-area');
+                            if (areaField && user.area_id) {
+                                areaField.value = user.area_id;
+                            }
+                        }, 500);
+                    }
+                }, 500);
+            }
+        });
+        
+        // Cambiar el título del modal
+        const modal = document.getElementById('user-registration-modal');
+        const modalTitle = modal.querySelector('.modal-header h2');
+        if (modalTitle) {
+            modalTitle.innerHTML = '<i class="fas fa-user-edit"></i> Editar Usuario';
+        }
+        
+        // Agregar campo oculto para el ID del usuario
+        let userIdField = document.getElementById('edit-user-id');
+        if (!userIdField) {
+            userIdField = document.createElement('input');
+            userIdField.type = 'hidden';
+            userIdField.id = 'edit-user-id';
+            userIdField.name = 'user_id';
+            document.getElementById('user-edit-form').appendChild(userIdField);
+        }
+        userIdField.value = userId;
+        
+        showToast(`Editando usuario: ${user.full_name}`, 'info');
+    }, 200); // Pequeño retraso para asegurar que el DOM esté listo
+}
+
+// Función para cargar empresas en el formulario de edición
+async function loadEmpresasForEdit() {
+    try {
+        const response = await fetch('/api/empresas', {
+            credentials: 'include'
+        });
+        
+        if (!response.ok) {
+            throw new Error('Error cargando empresas');
+        }
+        
+        const empresas = await response.json();
+        const empresaSelect = document.getElementById('edit-user-empresa');
+        
+        // Limpiar y agregar opciones
+        empresaSelect.innerHTML = '<option value="">Seleccionar empresa...</option>';
+        
+        empresas.forEach(empresa => {
+            if (empresa.activa) {
+                const option = document.createElement('option');
+                option.value = empresa.empresa_id;
+                option.textContent = empresa.nombre;
+                empresaSelect.appendChild(option);
+            }
+        });
+        
+        console.log('Empresas cargadas para edición:', empresas.length);
+        
+    } catch (error) {
+        console.error('Error cargando empresas para edición:', error);
+        showToast('Error cargando empresas', 'error');
+    }
+}
+
+// Función específica para mostrar el formulario de edición
+function showUserEdit() {
+    const modal = document.getElementById('user-registration-modal');
+    modal.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+    
+    // Ocultar formulario de registro y mostrar formulario de edición
+    const registerForm = document.getElementById('user-registration-form');
+    const editForm = document.getElementById('user-edit-form');
+    
+    registerForm.style.display = 'none';
+    editForm.style.display = 'block';
+    
+    // Cargar datos iniciales para el formulario de edición
+    loadEmpresasForEdit();
+    
+    // Agregar event listener al formulario de edición
+    if (editForm) {
+        editForm.addEventListener('submit', handleUserEdit);
+    }
+    
+    // Agregar event listener para cambio de empresa en formulario de edición
+    const empresaEditSelect = document.getElementById('edit-user-empresa');
+    if (empresaEditSelect) {
+        empresaEditSelect.addEventListener('change', handleEmpresaChangeEdit);
+    }
+    
+    // Agregar event listener para cambio de sede en formulario de edición
+    const sedeEditSelect = document.getElementById('edit-user-sede');
+    if (sedeEditSelect) {
+        sedeEditSelect.addEventListener('change', handleSedeChangeEdit);
+    }
+}
+
+// Funciones específicas para el formulario de edición
+async function handleEmpresaChangeEdit() {
+    const empresaId = document.getElementById('edit-user-empresa').value;
+    const sedeSelect = document.getElementById('edit-user-sede');
+    const addSedeBtn = document.getElementById('edit-add-sede-btn');
+    
+    // Limpiar selects dependientes
+    sedeSelect.innerHTML = '<option value="">Seleccionar empresa primero...</option>';
+    document.getElementById('edit-user-area').innerHTML = '<option value="">Seleccionar sede primero...</option>';
+    
+    if (!empresaId) {
+        sedeSelect.disabled = true;
+        document.getElementById('edit-user-area').disabled = true;
+        addSedeBtn.disabled = true;
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/empresas/${empresaId}/sedes`, {
+            credentials: 'include'
+        });
+        
+        if (!response.ok) {
+            throw new Error('Error cargando sedes');
+        }
+        
+        const sedes = await response.json();
+        
+        // Agregar sedes al select
+        sedes.forEach(sede => {
+            if (sede.activa) {
+                const option = document.createElement('option');
+                option.value = sede.sede_id;
+                option.textContent = sede.nombre;
+                sedeSelect.appendChild(option);
+            }
+        });
+        
+        sedeSelect.disabled = false;
+        addSedeBtn.disabled = false;
+        
+    } catch (error) {
+        console.error('Error cargando sedes:', error);
+        showToast('Error cargando sedes', 'error');
+    }
+}
+
+async function handleSedeChangeEdit() {
+    const sedeId = document.getElementById('edit-user-sede').value;
+    const areaSelect = document.getElementById('edit-user-area');
+    const addAreaBtn = document.getElementById('edit-add-area-btn');
+    
+    // Limpiar select de áreas
+    areaSelect.innerHTML = '<option value="">Seleccionar sede primero...</option>';
+    
+    if (!sedeId) {
+        areaSelect.disabled = true;
+        addAreaBtn.disabled = true;
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/sedes/${sedeId}/areas`, {
+            credentials: 'include'
+        });
+        
+        if (!response.ok) {
+            throw new Error('Error cargando áreas');
+        }
+        
+        const areas = await response.json();
+        
+        // Agregar áreas al select
+        areas.forEach(area => {
+            if (area.activa) {
+                const option = document.createElement('option');
+                option.value = area.area_id;
+                option.textContent = area.nombre;
+                areaSelect.appendChild(option);
+            }
+        });
+        
+        // Agregar opción "Tics" por defecto si no existe
+        const ticsOption = Array.from(areaSelect.options).find(opt => opt.textContent === 'Tics');
+        if (!ticsOption) {
+            const option = document.createElement('option');
+            option.value = 'tics-default';
+            option.textContent = 'Tics';
+            areaSelect.appendChild(option);
+        }
+        
+        areaSelect.disabled = false;
+        addAreaBtn.disabled = false;
+        
+    } catch (error) {
+        console.error('Error cargando áreas:', error);
+        showToast('Error cargando áreas', 'error');
+    }
+}
+
+function addNewEmpresaToEdit() {
+    // Implementar si se necesita crear empresa desde edición
+    showToast('Función de nueva empresa en edición en desarrollo', 'info');
+}
+
+function addNewSedeToEdit() {
+    // Implementar si se necesita crear sede desde edición
+    showToast('Función de nueva sede en edición en desarrollo', 'info');
+}
+
+function addNewAreaToEdit() {
+    // Implementar si se necesita crear área desde edición
+    showToast('Función de nueva área en edición en desarrollo', 'info');
+}
+
+function closeUserEditModal() {
+    const modal = document.getElementById('user-registration-modal');
+    if (modal) {
+        modal.style.display = 'none';
+        document.body.style.overflow = 'auto';
+    }
+}
+
+// Función para manejar el envío del formulario de edición
+async function handleUserEdit(e) {
+    e.preventDefault();
+    
+    const userIdField = document.getElementById('edit-user-id');
+    
+    if (!userIdField || !userIdField.value) {
+        showToast('ID de usuario no encontrado', 'error');
+        return;
+    }
+    
+    const formData = new FormData(e.target);
+    
+    try {
+        const response = await fetch(`/api/users/${userIdField.value}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                full_name: formData.get('full_name'),
+                role: formData.get('role'),
+                empresa_id: formData.get('empresa'),
+                sede_id: formData.get('sede'),
+                area_id: formData.get('area')
+            }),
+            credentials: 'include'
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Error actualizando usuario');
+        }
+        
+        showToast('Usuario actualizado exitosamente', 'success');
+        closeUserEditModal();
+        
+    } catch (error) {
+        console.error('Error actualizando usuario:', error);
+        showToast(error.message || 'Error actualizando usuario', 'error');
+    }
+}
+
+// Agregar estilos CSS dinámicamente para los badges de roles
+const roleStyles = `
+    <style>
+    .role-badge {
+        padding: 0.3rem 0.8rem;
+        border-radius: 1rem;
+        font-size: 1.1rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .role-admin {
+        background: #dc3545;
+        color: white;
+    }
+    .role-developer {
+        background: #6f42c1;
+        color: white;
+    }
+    .role-user {
+        background: #28a745;
+        color: white;
+    }
+    </style>
+`;
+
+document.head.insertAdjacentHTML('beforeend', roleStyles);
+
+// Función global para mostrar toast (compatibilidad)
+function showToast(message, type = 'info') {
+    if (window.dashboard && typeof window.dashboard.showToast === 'function') {
+        window.dashboard.showToast(message, type);
+    } else {
+        console.log(`Toast (${type}): ${message}`);
+        alert(message);
+    }
+}

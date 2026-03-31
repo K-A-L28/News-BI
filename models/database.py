@@ -20,9 +20,9 @@ def generate_uuid():
 # --- ENUMS ---
 
 class UserRole(Enum):
-    SUPER_ADMIN = "SUPER_ADMIN"
     ADMIN = "ADMIN"
     USER = "USER"
+    DEVELOPER = "DEVELOPER"
 
 # --- MODELOS ---
 
@@ -39,9 +39,19 @@ class User(Base):
     updated_by = Column(ForeignKey("users.user_id"), nullable=True)  # Quién actualizó este usuario
     last_login = Column(DateTime, nullable=True)  # Último inicio de sesión
     
+    # Nuevos campos para organigrama
+    empresa_id = Column(ForeignKey("empresas.empresa_id"), nullable=True)
+    sede_id = Column(ForeignKey("sedes.sede_id"), nullable=True)
+    area_id = Column(ForeignKey("areas.area_id"), nullable=True)
+    
     # Relación para auditoría (auto-referencia)
     creator = relationship("User", remote_side=[user_id], foreign_keys=[created_by])
     updater = relationship("User", remote_side=[user_id], foreign_keys=[updated_by])
+    
+    # Relaciones con organigrama
+    empresa = relationship("Empresa", foreign_keys=[empresa_id])
+    sede = relationship("Sede", foreign_keys=[sede_id])
+    area = relationship("Area", foreign_keys=[area_id])
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
@@ -152,6 +162,52 @@ class EmailListItem(Base):
     # Relación con la lista padre
     email_list = relationship("EmailList", back_populates="emails")
 
+class Empresa(Base):
+    __tablename__ = "empresas"
+    empresa_id = Column(String, primary_key=True, default=generate_uuid)
+    nombre = Column(String, nullable=False, unique=True)
+    dominio_correo = Column(String, nullable=True)  # Dominio de correo válido para la empresa
+    activa = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(ForeignKey("users.user_id"), nullable=True)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+    updated_by = Column(ForeignKey("users.user_id"), nullable=True)
+    
+    # Relaciones
+    sedes = relationship("Sede", back_populates="empresa", cascade="all, delete-orphan")
+
+class Sede(Base):
+    __tablename__ = "sedes"
+    sede_id = Column(String, primary_key=True, default=generate_uuid)
+    empresa_id = Column(ForeignKey("empresas.empresa_id"), nullable=False)
+    nombre = Column(String, nullable=False)
+    direccion = Column(String, nullable=True)
+    ciudad = Column(String, nullable=True)
+    activa = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(ForeignKey("users.user_id"), nullable=True)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+    updated_by = Column(ForeignKey("users.user_id"), nullable=True)
+    
+    # Relaciones
+    empresa = relationship("Empresa", back_populates="sedes")
+    areas = relationship("Area", back_populates="sede", cascade="all, delete-orphan")
+
+class Area(Base):
+    __tablename__ = "areas"
+    area_id = Column(String, primary_key=True, default=generate_uuid)
+    sede_id = Column(ForeignKey("sedes.sede_id"), nullable=False)
+    nombre = Column(String, nullable=False)
+    descripcion = Column(String, nullable=True)
+    activa = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(ForeignKey("users.user_id"), nullable=True)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+    updated_by = Column(ForeignKey("users.user_id"), nullable=True)
+    
+    # Relaciones
+    sede = relationship("Sede", back_populates="areas")
+
 # --- FUNCIONES DE UTILIDAD ---
 
 def create_or_update_user(email: str, full_name: str, session, created_by: str = None):
@@ -215,10 +271,10 @@ def get_users_by_role(role: UserRole, session):
 
 def can_manage_roles(user_id: str, session):
     """
-    Verifica si un usuario puede gestionar roles (solo SUPER_ADMIN).
+    Verifica si un usuario puede gestionar roles (solo ADMIN).
     """
     user = session.query(User).filter(User.user_id == user_id).first()
-    return user and user.role == UserRole.SUPER_ADMIN
+    return user and user.role in [UserRole.ADMIN, UserRole.DEVELOPER]
 
 def create_audit_log(entity_type: str, entity_id: str, action: str, performed_by: str, session, old_value=None, new_value=None):
     """

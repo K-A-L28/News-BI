@@ -18,7 +18,7 @@ import secrets
 from urllib.parse import urlencode
 
 # Importaciones del sistema
-from models.database import SessionLocal, Schedule, Newsletter, ExecutionLog, FileAsset, User, SystemConfig, EmailList, EmailListItem, create_audit_log, AuditLog
+from models.database import SessionLocal, Schedule, Newsletter, ExecutionLog, FileAsset, User, SystemConfig, EmailList, EmailListItem, create_audit_log, AuditLog, Empresa, Sede, Area, UserRole, can_manage_roles
 from sqlalchemy import extract
 from controllers.engine import SystemEngine
 from utils.encryption import env_encryptor
@@ -86,6 +86,73 @@ class EmailListResponse(BaseModel):
     email_count: int
     created_at: str
     created_by: str
+
+# Modelos para Organigrama
+class EmpresaRequest(BaseModel):
+    nombre: str
+    dominio_correo: Optional[str] = None
+
+class EmpresaResponse(BaseModel):
+    empresa_id: str
+    nombre: str
+    dominio_correo: Optional[str]
+    activa: bool
+    created_at: str
+
+class SedeRequest(BaseModel):
+    nombre: str
+    empresa_id: str
+    direccion: Optional[str] = None
+    ciudad: Optional[str] = None
+
+class SedeResponse(BaseModel):
+    sede_id: str
+    nombre: str
+    empresa_id: str
+    direccion: Optional[str]
+    ciudad: Optional[str]
+    activa: bool
+    created_at: str
+
+class AreaRequest(BaseModel):
+    nombre: str
+    sede_id: str
+    descripcion: Optional[str] = None
+
+class AreaResponse(BaseModel):
+    area_id: str
+    nombre: str
+    sede_id: str
+    descripcion: Optional[str]
+    activa: bool
+    created_at: str
+
+class UserRegistrationRequest(BaseModel):
+    email: str
+    full_name: str
+    role: str
+    empresa_id: str
+    sede_id: Optional[str] = None
+    area_id: Optional[str] = None
+
+class UserResponse(BaseModel):
+    user_id: str
+    email: str
+    full_name: str
+    role: str
+    empresa_id: Optional[str] = None
+    sede_id: Optional[str] = None
+    area_id: Optional[str] = None
+    is_active: bool
+    created_at: str
+
+class UserUpdateRequest(BaseModel):
+    full_name: Optional[str] = None
+    role: Optional[str] = None
+    empresa_id: Optional[str] = None
+    sede_id: Optional[str] = None
+    area_id: Optional[str] = None
+    is_active: Optional[bool] = None
 
 # Inicializar el engine del sistema
 system_engine = SystemEngine()
@@ -2327,6 +2394,519 @@ async def get_raw_credentials():
     except Exception as e:
         logger.error(f"Error obteniendo credenciales completas: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error obteniendo credenciales: {str(e)}")
+
+# --- Endpoints para Gestión de Organigrama ---
+
+@app.get("/api/empresas", response_model=List[EmpresaResponse])
+async def get_empresas(request: Request):
+    """Obtener todas las empresas activas"""
+    db = SessionLocal()
+    try:
+        empresas = db.query(Empresa).filter(Empresa.activa == True).all()
+        return [
+            EmpresaResponse(
+                empresa_id=emp.empresa_id,
+                nombre=emp.nombre,
+                dominio_correo=emp.dominio_correo,
+                activa=emp.activa,
+                created_at=emp.created_at.isoformat()
+            )
+            for emp in empresas
+        ]
+    except Exception as e:
+        logger.error(f"Error obteniendo empresas: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error obteniendo empresas: {str(e)}")
+    finally:
+        db.close()
+
+@app.post("/api/empresas", response_model=EmpresaResponse)
+@authenticate_user()
+async def create_empresa(request: Request, empresa_data: EmpresaRequest):
+    """Crear una nueva empresa"""
+    db = SessionLocal()
+    try:
+        # Verificar si ya existe una empresa con ese nombre
+        existing = db.query(Empresa).filter(Empresa.nombre == empresa_data.nombre).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Ya existe una empresa con ese nombre")
+        
+        empresa = Empresa(
+            nombre=empresa_data.nombre,
+            dominio_correo=empresa_data.dominio_correo,
+            created_by=request.state.user.get("user_id") if hasattr(request.state, 'user') else None
+        )
+        db.add(empresa)
+        db.commit()
+        db.refresh(empresa)
+        
+        # Auditoría - manejar en una sesión separada para no afectar la transacción principal
+        try:
+            audit_db = SessionLocal()
+            create_audit_log(
+                entity_type="EMPRESA",
+                entity_id=empresa.empresa_id,
+                action="CREATE",
+                performed_by=request.state.user.get("user_id") if hasattr(request.state, 'user') else None,
+                session=audit_db,
+                new_value={"nombre": empresa.nombre, "dominio_correo": empresa.dominio_correo}
+            )
+            audit_db.commit()
+        except Exception as audit_error:
+            logger.error(f"Error en auditoría de empresa: {str(audit_error)}")
+            # No fallar la operación principal si la auditoría falla
+        finally:
+            try:
+                audit_db.close()
+            except:
+                pass
+        
+        return EmpresaResponse(
+            empresa_id=empresa.empresa_id,
+            nombre=empresa.nombre,
+            dominio_correo=empresa.dominio_correo,
+            activa=empresa.activa,
+            created_at=empresa.created_at.isoformat()
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creando empresa: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creando empresa: {str(e)}")
+    finally:
+        db.close()
+
+@app.get("/api/empresas/{empresa_id}/sedes", response_model=List[SedeResponse])
+async def get_sedes_by_empresa(empresa_id: str, request: Request):
+    """Obtener todas las sedes de una empresa"""
+    db = SessionLocal()
+    try:
+        sedes = db.query(Sede).filter(Sede.empresa_id == empresa_id, Sede.activa == True).all()
+        return [
+            SedeResponse(
+                sede_id=sede.sede_id,
+                nombre=sede.nombre,
+                empresa_id=sede.empresa_id,
+                direccion=sede.direccion,
+                ciudad=sede.ciudad,
+                activa=sede.activa,
+                created_at=sede.created_at.isoformat()
+            )
+            for sede in sedes
+        ]
+    except Exception as e:
+        logger.error(f"Error obteniendo sedes: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error obteniendo sedes: {str(e)}")
+    finally:
+        db.close()
+
+@app.post("/api/sedes", response_model=SedeResponse)
+@authenticate_user()
+async def create_sede(request: Request, sede_data: SedeRequest):
+    """Crear una nueva sede"""
+    db = SessionLocal()
+    try:
+        # Verificar si la empresa existe
+        empresa = db.query(Empresa).filter(Empresa.empresa_id == sede_data.empresa_id).first()
+        if not empresa:
+            raise HTTPException(status_code=404, detail="Empresa no encontrada")
+        
+        # Verificar si ya existe una sede con ese nombre en la misma empresa
+        existing = db.query(Sede).filter(
+            Sede.empresa_id == sede_data.empresa_id,
+            Sede.nombre == sede_data.nombre
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Ya existe una sede con ese nombre en esta empresa")
+        
+        sede = Sede(
+            nombre=sede_data.nombre,
+            empresa_id=sede_data.empresa_id,
+            direccion=sede_data.direccion,
+            ciudad=sede_data.ciudad,
+            created_by=request.state.user.get("user_id") if hasattr(request.state, 'user') else None
+        )
+        db.add(sede)
+        db.commit()
+        db.refresh(sede)
+        
+        # Auditoría - manejar en una sesión separada para no afectar la transacción principal
+        try:
+            audit_db = SessionLocal()
+            create_audit_log(
+                entity_type="SEDE",
+                entity_id=sede.sede_id,
+                action="CREATE",
+                performed_by=request.state.user.get("user_id") if hasattr(request.state, 'user') else None,
+                session=audit_db,
+                new_value={"nombre": sede.nombre, "empresa_id": sede.empresa_id}
+            )
+            audit_db.commit()
+        except Exception as audit_error:
+            logger.error(f"Error en auditoría de sede: {str(audit_error)}")
+            # No fallar la operación principal si la auditoría falla
+        finally:
+            try:
+                audit_db.close()
+            except:
+                pass
+        
+        return SedeResponse(
+            sede_id=sede.sede_id,
+            nombre=sede.nombre,
+            empresa_id=sede.empresa_id,
+            direccion=sede.direccion,
+            ciudad=sede.ciudad,
+            activa=sede.activa,
+            created_at=sede.created_at.isoformat()
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creando sede: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creando sede: {str(e)}")
+    finally:
+        db.close()
+
+@app.get("/api/sedes/{sede_id}/areas", response_model=List[AreaResponse])
+async def get_areas_by_sede(sede_id: str, request: Request):
+    """Obtener todas las áreas de una sede"""
+    db = SessionLocal()
+    try:
+        areas = db.query(Area).filter(Area.sede_id == sede_id, Area.activa == True).all()
+        return [
+            AreaResponse(
+                area_id=area.area_id,
+                nombre=area.nombre,
+                sede_id=area.sede_id,
+                descripcion=area.descripcion,
+                activa=area.activa,
+                created_at=area.created_at.isoformat()
+            )
+            for area in areas
+        ]
+    except Exception as e:
+        logger.error(f"Error obteniendo áreas: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error obteniendo áreas: {str(e)}")
+    finally:
+        db.close()
+
+@app.post("/api/areas", response_model=AreaResponse)
+@authenticate_user()
+async def create_area(request: Request, area_data: AreaRequest):
+    """Crear una nueva área"""
+    db = SessionLocal()
+    try:
+        # Verificar si la sede existe
+        sede = db.query(Sede).filter(Sede.sede_id == area_data.sede_id).first()
+        if not sede:
+            raise HTTPException(status_code=404, detail="Sede no encontrada")
+        
+        # Verificar si ya existe un área con ese nombre en la misma sede
+        existing = db.query(Area).filter(
+            Area.sede_id == area_data.sede_id,
+            Area.nombre == area_data.nombre
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Ya existe un área con ese nombre en esta sede")
+        
+        area = Area(
+            nombre=area_data.nombre,
+            sede_id=area_data.sede_id,
+            descripcion=area_data.descripcion,
+            created_by=request.state.user.get("user_id") if hasattr(request.state, 'user') else None
+        )
+        db.add(area)
+        db.commit()
+        db.refresh(area)
+        
+        # Auditoría - manejar en una sesión separada para no afectar la transacción principal
+        try:
+            audit_db = SessionLocal()
+            create_audit_log(
+                entity_type="AREA",
+                entity_id=area.area_id,
+                action="CREATE",
+                performed_by=request.state.user.get("user_id") if hasattr(request.state, 'user') else None,
+                session=audit_db,
+                new_value={"nombre": area.nombre, "sede_id": area.sede_id}
+            )
+            audit_db.commit()
+        except Exception as audit_error:
+            logger.error(f"Error en auditoría de área: {str(audit_error)}")
+            # No fallar la operación principal si la auditoría falla
+        finally:
+            try:
+                audit_db.close()
+            except:
+                pass
+        
+        return AreaResponse(
+            area_id=area.area_id,
+            nombre=area.nombre,
+            sede_id=area.sede_id,
+            descripcion=area.descripcion,
+            activa=area.activa,
+            created_at=area.created_at.isoformat()
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creando área: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creando área: {str(e)}")
+    finally:
+        db.close()
+
+@app.post("/api/users/register")
+@authenticate_user()
+async def register_user(request: Request, user_data: UserRegistrationRequest):
+    """Registrar un nuevo usuario con organigrama"""
+    # Debug: Verificar si el usuario está autenticado
+    logger.info(f"🔍 Usuario autenticado: {getattr(request.state, 'user', 'NO USER')}")
+    if hasattr(request.state, 'user') and request.state.user:
+        logger.info(f"🔍 User ID: {request.state.user.get('user_id')}")
+    else:
+        logger.error("❌ No hay usuario autenticado en request.state.user")
+    
+    db = SessionLocal()
+    try:
+        # Validar que el rol sea válido
+        try:
+            role_enum = UserRole(user_data.role.upper())
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Rol no válido")
+        
+        # Verificar si el usuario ya existe
+        existing_user = db.query(User).filter(User.email == user_data.email).first()
+        if existing_user:
+            raise HTTPException(status_code=400, detail="El usuario ya existe")
+        
+        # Validar dominio del correo
+        if not user_data.email.endswith('@clinicassanrafael.com'):
+            raise HTTPException(
+                status_code=400, 
+                detail="Usuario Administrador, recuerde que los correos que no son del dominio @clinicassanrafael.com deben ser invitados en Microsoft Entra ID"
+            )
+        
+        # Verificar que existan empresa, sede y área
+        empresa = db.query(Empresa).filter(Empresa.empresa_id == user_data.empresa_id).first()
+        if not empresa:
+            raise HTTPException(status_code=404, detail="Empresa no encontrada")
+        
+        sede = db.query(Sede).filter(Sede.sede_id == user_data.sede_id).first()
+        if not sede:
+            raise HTTPException(status_code=404, detail="Sede no encontrada")
+        
+        area = db.query(Area).filter(Area.area_id == user_data.area_id).first()
+        if not area:
+            raise HTTPException(status_code=404, detail="Área no encontrada")
+        
+        # Crear usuario
+        user = User(
+            email=user_data.email,
+            full_name=user_data.full_name,  # Usar el nombre del formulario
+            role=role_enum,
+            empresa_id=user_data.empresa_id,
+            sede_id=user_data.sede_id,
+            area_id=user_data.area_id,
+            created_by=request.state.user.get("user_id") if hasattr(request.state, 'user') else None
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        
+        # Auditoría
+        create_audit_log(
+            entity_type="USER",
+            entity_id=user.user_id,
+            action="CREATE",
+            performed_by=request.state.user.get("user_id"),
+            session=db,
+            new_value={
+                "email": user.email,
+                "full_name": user.full_name,
+                "role": user.role.value,
+                "empresa_id": user.empresa_id,
+                "sede_id": user.sede_id,
+                "area_id": user.area_id
+            }
+        )
+        
+        return {
+            "message": "Usuario registrado exitosamente",
+            "user_id": user.user_id,
+            "email": user.email
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error registrando usuario: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error registrando usuario: {str(e)}")
+    finally:
+        db.close()
+
+@app.get("/api/users", response_model=List[UserResponse])
+@authenticate_user()
+async def get_users(request: Request):
+    """Obtener todos los usuarios (solo ADMIN y DEVELOPER)"""
+    db = SessionLocal()
+    try:
+        # Verificar permisos
+        current_user_id = request.state.user.get("user_id")
+        if not can_manage_roles(current_user_id, db):
+            raise HTTPException(status_code=403, detail="No tienes permisos para gestionar usuarios")
+        
+        users = db.query(User).all()
+        
+        result = []
+        for user in users:
+            # Obtener nombres de empresa, sede, área
+            empresa_name = None
+            sede_name = None
+            area_name = None
+            
+            try:
+                if user.empresa_id:
+                    empresa = db.query(Empresa).filter(Empresa.empresa_id == user.empresa_id).first()
+                    empresa_name = empresa.nombre if empresa else None
+                    
+                if user.sede_id:
+                    sede = db.query(Sede).filter(Sede.sede_id == user.sede_id).first()
+                    sede_name = sede.nombre if sede else None
+                    
+                if user.area_id:
+                    area = db.query(Area).filter(Area.area_id == user.area_id).first()
+                    area_name = area.nombre if area else None
+                
+                # Manejar usuarios con rol antiguo SUPER_ADMIN
+                role_value = user.role.value if hasattr(user.role, 'value') else str(user.role)
+                if role_value == 'SUPER_ADMIN':
+                    role_value = 'ADMIN'  # Convertir SUPER_ADMIN a ADMIN
+                
+                result.append(UserResponse(
+                    user_id=user.user_id,
+                    email=user.email,
+                    full_name=user.full_name,
+                    role=role_value,
+                    empresa_id=user.empresa_id,
+                    sede_id=user.sede_id,
+                    area_id=user.area_id,
+                    is_active=user.is_active,
+                    created_at=user.created_at.isoformat()
+                ))
+            except Exception as user_error:
+                logger.error(f"Error procesando usuario {user.user_id}: {str(user_error)}")
+                continue
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error obteniendo usuarios: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error obteniendo usuarios: {str(e)}")
+    finally:
+        db.close()
+
+@app.put("/api/users/{user_id}", response_model=UserResponse)
+@authenticate_user()
+async def update_user(request: Request, user_id: str, user_data: UserUpdateRequest):
+    """Actualizar un usuario (solo ADMIN y DEVELOPER)"""
+    db = SessionLocal()
+    try:
+        # Verificar permisos
+        current_user_id = request.state.user.get("user_id")
+        if not can_manage_roles(current_user_id, db):
+            raise HTTPException(status_code=403, detail="No tienes permisos para gestionar usuarios")
+        
+        # Obtener usuario a actualizar
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        
+        # Guardar valores antiguos para auditoría
+        old_values = {
+            "full_name": user.full_name,
+            "role": user.role.value,
+            "empresa_id": user.empresa_id,
+            "sede_id": user.sede_id,
+            "area_id": user.area_id,
+            "is_active": user.is_active
+        }
+        
+        # Actualizar campos
+        if user_data.full_name is not None:
+            user.full_name = user_data.full_name
+        if user_data.role is not None:
+            # Validar que el rol sea válido
+            valid_roles = [UserRole.USER.value, UserRole.ADMIN.value, UserRole.DEVELOPER.value]
+            if user_data.role not in valid_roles:
+                raise HTTPException(status_code=400, detail="Rol no válido")
+            user.role = UserRole(user_data.role)
+        if user_data.empresa_id is not None:
+            user.empresa_id = user_data.empresa_id
+        if user_data.sede_id is not None:
+            user.sede_id = user_data.sede_id
+        if user_data.area_id is not None:
+            user.area_id = user_data.area_id
+        if user_data.is_active is not None:
+            user.is_active = user_data.is_active
+        
+        db.commit()
+        db.refresh(user)
+        
+        # Auditoría
+        try:
+            audit_db = SessionLocal()
+            new_values = {
+                "full_name": user.full_name,
+                "role": user.role.value,
+                "empresa_id": user.empresa_id,
+                "sede_id": user.sede_id,
+                "area_id": user.area_id,
+                "is_active": user.is_active
+            }
+            
+            create_audit_log(
+                entity_type="USER",
+                entity_id=user.user_id,
+                action="UPDATE",
+                performed_by=current_user_id,
+                session=audit_db,
+                old_value=old_values,
+                new_value=new_values
+            )
+            audit_db.commit()
+        except Exception as audit_error:
+            logger.error(f"Error en auditoría de actualización de usuario: {str(audit_error)}")
+        finally:
+            try:
+                audit_db.close()
+            except:
+                pass
+        
+        return UserResponse(
+            user_id=user.user_id,
+            email=user.email,
+            full_name=user.full_name,
+            role=user.role.value,
+            empresa_id=user.empresa_id,
+            sede_id=user.sede_id,
+            area_id=user.area_id,
+            is_active=user.is_active,
+            created_at=user.created_at.isoformat()
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error actualizando usuario: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error actualizando usuario: {str(e)}")
+    finally:
+        db.close()
 
 def start_api_server():
     """Iniciar servidor API"""
