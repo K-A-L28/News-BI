@@ -51,7 +51,6 @@ function handleUserRegistrationClick() {
         if (modal) {
             modal.style.display = 'block';
             document.body.style.overflow = 'hidden';
-            console.log('Modal de registro de usuario abierto manualmente');
         } else {
             console.error('Modal de registro de usuario no encontrado');
             alert('Error: No se pudo abrir el formulario de registro de usuario');
@@ -67,7 +66,6 @@ window.fetch = async function(...args) {
         
         // Si la respuesta es 401, limpiar cookie y redirigir al login
         if (response.status === 401) {
-            console.log('Sesión expirada detectada, limpiando cookie y redirigiendo al login...');
             // Limpiar datos de usuario
             if (window.dashboard) {
                 window.dashboard.currentUser = null;
@@ -1895,7 +1893,6 @@ class Dashboard {
             imagesFileName: imagesFileName?.textContent || 'Haz clic para seleccionar una o más imágenes'
         };
         
-        console.log('Saving form state:', state); // Debug log
         return state;
     }
 
@@ -3034,12 +3031,10 @@ function validateEmailDomain() {
     
     // Verificar que los elementos existan
     if (!emailInput) {
-        console.log('Campo user-email no encontrado');
         return true; // Si no existe el elemento, no validar
     }
     
     if (!emailError) {
-        console.log('Campo email-error no encontrado');
         return true; // Si no existe el elemento, no validar
     }
     
@@ -3200,7 +3195,6 @@ async function handleSedeChange() {
     const addAreaBtn = document.getElementById('add-area-btn');
     
     const sedeId = sedeSelect.value;
-    console.log('handleSedeChange llamado con sedeId:', sedeId);
     
     // Resetear área
     areaSelect.innerHTML = '<option value="">Seleccionar área...</option>';
@@ -3212,7 +3206,6 @@ async function handleSedeChange() {
     }
     
     try {
-        console.log('Cargando áreas para sede:', sedeId);
         // Cargar áreas de la sede seleccionada
         const response = await fetch(`/api/sedes/${sedeId}/areas`, {
             credentials: 'include'
@@ -3223,7 +3216,6 @@ async function handleSedeChange() {
         }
         
         const areas = await response.json();
-        console.log('Áreas recibidas:', areas);
         
         // Agregar áreas al select
         areas.forEach(area => {
@@ -3237,7 +3229,6 @@ async function handleSedeChange() {
         
         areaSelect.disabled = false;
         addAreaBtn.disabled = false;
-        console.log('Áreas cargadas exitosamente');
         
     } catch (error) {
         console.error('Error cargando áreas:', error);
@@ -3537,6 +3528,9 @@ function renderUsersTable() {
                 <span class="role-badge ${getRoleClass(user.role)}">${getRoleDisplayName(user.role)}</span>
             </td>
             <td>
+                <button class="btn-view" onclick="viewUser('${user.user_id}')" title="Ver usuario">
+                    <i class="fas fa-eye"></i> Ver
+                </button>
                 <button class="btn-edit" onclick="editUser('${user.user_id}')" title="Editar usuario">
                     <i class="fas fa-edit"></i> Editar
                 </button>
@@ -3616,15 +3610,97 @@ function searchUsers() {
     updatePagination();
 }
 
-function editUser(userId) {
-    console.log('editUser llamado con userId:', userId);
+function viewUser(userId) {
     
     // Cerrar el modal de lista de usuarios primero
     closeUserListModal();
     
     // Buscar el usuario en la lista cargada
     const user = allUsers.find(u => u.user_id === userId);
-    console.log('Usuario encontrado:', user);
+    
+    if (!user) {
+        showToast('Usuario no encontrado', 'error');
+        return;
+    }
+    
+    // Mostrar el formulario de visualización específico
+    showUserView();
+    
+    // Cargar los datos del usuario después de que el formulario esté visible
+    setTimeout(() => {
+        // Cargar los datos en el formulario de visualización
+        const nombresField = document.getElementById('view-user-nombres');
+        const apellidosField = document.getElementById('view-user-apellidos');
+        const telefonoField = document.getElementById('view-user-telefono');
+        const direccionField = document.getElementById('view-user-direccion');
+        const departamentoField = document.getElementById('view-user-departamento');
+        const municipioField = document.getElementById('view-user-municipio');
+        const emailField = document.getElementById('view-user-email');
+        const roleField = document.getElementById('view-user-role');
+        const empresaField = document.getElementById('view-user-empresa');
+        const sedeField = document.getElementById('view-user-sede');
+        const areaField = document.getElementById('view-user-area');
+        const statusField = document.getElementById('view-user-status');
+        
+        if (nombresField) nombresField.value = user.nombres || '';
+        if (apellidosField) apellidosField.value = user.apellidos || '';
+        if (telefonoField) telefonoField.value = user.telefono || '';
+        if (direccionField) direccionField.value = user.direccion || '';
+        if (departamentoField) departamentoField.value = user.departamento || '';
+        if (municipioField) municipioField.value = user.municipio || '';
+        if (emailField) {
+            emailField.value = user.email;
+        }
+        if (roleField) roleField.value = getRoleDisplayName(user.role);
+        if (statusField) statusField.value = user.is_active ? 'Activo' : 'Inactivo';
+        
+        // Cargar información adicional (empresa, sede, área)
+        loadUserInfoForView(user);
+    }, 200); // Pequeño retraso para asegurar que el DOM esté listo
+}
+
+function showUserView() {
+    const modal = document.getElementById('user-view-modal');
+    if (modal) {
+        modal.style.display = 'block';
+        document.body.style.overflow = 'hidden';
+    }
+}
+
+function closeUserViewModal() {
+    const modal = document.getElementById('user-view-modal');
+    if (modal) {
+        modal.style.display = 'none';
+        document.body.style.overflow = 'auto';
+    }
+}
+
+function loadUserInfoForView(user) {
+    // Cargar información de empresa, sede y área para visualización
+    // Ahora los nombres vienen directamente en la respuesta de la API
+    const empresaField = document.getElementById('view-user-empresa');
+    const sedeField = document.getElementById('view-user-sede');
+    const areaField = document.getElementById('view-user-area');
+    
+    // Usar los nombres que vienen en la respuesta de la API (empresa_name, sede_name, area_name)
+    if (empresaField) {
+        empresaField.value = user.empresa_name || user.empresa_id || 'No asignada';
+    }
+    if (sedeField) {
+        sedeField.value = user.sede_name || user.sede_id || 'No asignada';
+    }
+    if (areaField) {
+        areaField.value = user.area_name || user.area_id || 'No asignada';
+    }
+}
+
+function editUser(userId) {
+    
+    // Cerrar el modal de lista de usuarios primero
+    closeUserListModal();
+    
+    // Buscar el usuario en la lista cargada
+    const user = allUsers.find(u => u.user_id === userId);
     
     if (!user) {
         showToast('Usuario no encontrado', 'error');
@@ -3655,7 +3731,6 @@ function editUser(userId) {
         if (municipioField) municipioField.value = user.municipio || '';
         if (emailField) {
             emailField.value = user.email;
-            console.log('Campo email configurado como readonly (formulario de edición)');
         }
         if (roleField) roleField.value = user.role;
         
@@ -3727,9 +3802,7 @@ async function loadEmpresasForEdit() {
                 empresaSelect.appendChild(option);
             }
         });
-        
-        console.log('Empresas cargadas para edición:', empresas.length);
-        
+                
     } catch (error) {
         console.error('Error cargando empresas para edición:', error);
         showToast('Error cargando empresas', 'error');
@@ -3974,7 +4047,6 @@ function showToast(message, type = 'info') {
     if (window.dashboard && typeof window.dashboard.showToast === 'function') {
         window.dashboard.showToast(message, type);
     } else {
-        console.log(`Toast (${type}): ${message}`);
         alert(message);
     }
 }

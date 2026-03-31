@@ -153,6 +153,9 @@ class UserResponse(BaseModel):
     empresa_id: Optional[str] = None
     sede_id: Optional[str] = None
     area_id: Optional[str] = None
+    empresa_name: Optional[str] = None
+    sede_name: Optional[str] = None
+    area_name: Optional[str] = None
     is_active: bool
     created_at: str
 
@@ -2836,6 +2839,9 @@ async def get_users(request: Request):
                     empresa_id=user.empresa_id,
                     sede_id=user.sede_id,
                     area_id=user.area_id,
+                    empresa_name=empresa_name,
+                    sede_name=sede_name,
+                    area_name=area_name,
                     is_active=user.is_active,
                     created_at=user.created_at.isoformat()
                 ))

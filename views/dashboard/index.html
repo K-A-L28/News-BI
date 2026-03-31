@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - Sistema de Boletines</title>
-    <link rel="stylesheet" href="/static/dashboard.css?v=1.8">
+    <link rel="stylesheet" href="/static/dashboard.css?v=1.10">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
@@ -552,8 +552,97 @@
                         <button type="submit" class="btn-primary" id="btn-update-user">
                             <i class="fas fa-save"></i> Actualizar Usuario
                         </button>
-                        <button type="button" class="btn-secondary" onclick="closeUserEditModal()">
+                        <button type="button" class="btn-secondary" onclick="closeUserEditModal(); openUserViewModal()">
                             <i class="fas fa-times"></i> Cancelar
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Visualizar Usuario -->
+    <div id="user-view-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-eye"></i> Detalles del Usuario</h2>
+                <button class="close-btn" onclick="closeUserViewModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="user-view-form">
+                    <input type="hidden" id="view-user-id" name="user_id">
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="view-user-nombres">Nombres:</label>
+                            <input type="text" id="view-user-nombres" readonly class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="view-user-apellidos">Apellidos:</label>
+                            <input type="text" id="view-user-apellidos" readonly class="form-control">
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="view-user-email">Correo Electrónico:</label>
+                            <input type="email" id="view-user-email" readonly class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="view-user-telefono">Teléfono:</label>
+                            <input type="tel" id="view-user-telefono" readonly class="form-control">
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="view-user-direccion">Dirección:</label>
+                            <input type="text" id="view-user-direccion" readonly class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="view-user-departamento">Departamento:</label>
+                            <input type="text" id="view-user-departamento" readonly class="form-control">
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="view-user-municipio">Municipio:</label>
+                            <input type="text" id="view-user-municipio" readonly class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="view-user-role">Rol:</label>
+                            <input type="text" id="view-user-role" readonly class="form-control">
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="view-user-empresa">Empresa:</label>
+                            <input type="text" id="view-user-empresa" readonly class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="view-user-sede">Sede:</label>
+                            <input type="text" id="view-user-sede" readonly class="form-control">
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="view-user-area">Área:</label>
+                            <input type="text" id="view-user-area" readonly class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="view-user-status">Estado:</label>
+                            <input type="text" id="view-user-status" readonly class="form-control">
+                        </div>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="button" class="btn-secondary" onclick="closeUserViewModal()">
+                            <i class="fas fa-times"></i> Cerrar
                         </button>
                     </div>
                 </form>
@@ -640,7 +729,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
 
     <!-- Script del Dashboard -->
-    <script src="/static/dashboard.js?v=7.4"></script>
+    <script src="/static/dashboard.js?v=7.5"></script>
     <!-- <script src="/static/dashboard.js"></script> -->
 </body>
 </html>
