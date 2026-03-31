@@ -22,13 +22,14 @@ from models.database import SessionLocal, Schedule, Newsletter, ExecutionLog, Fi
 from sqlalchemy import extract
 from controllers.engine import SystemEngine
 from utils.encryption import env_encryptor
+from utils.version import VERSION
 
 # Configuración
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Inicializar FastAPI
-app = FastAPI(title="Dashboard Boletines API", version="1.9.9")
+app = FastAPI(title="Dashboard Boletines API", version=VERSION)
 
 # Montar archivos estáticos
 app.mount("/static", StaticFiles(directory="views/dashboard"), name="static")
@@ -469,6 +470,12 @@ async def get_newsletters():
         raise HTTPException(status_code=500, detail="Error obteniendo newsletters")
     finally:
         db.close()
+
+@app.get("/api/version")
+async def get_version():
+    """API para obtener información de versión del sistema"""
+    from utils.version import get_version_info
+    return get_version_info()
 
 @app.get("/api/stats", response_model=StatsResponse)
 @authenticate_user()

@@ -234,18 +234,28 @@ Ejemplo:
 - v1.0.1 (corrección de errores)
 - v2.0.0 (cambio mayor)
 
-### **v1.9.9** *(Current Version)*
-**Fecha:** 2026-02-26  
+### **v2.0.0** *(Current Version)*
+**Fecha:** 2026-03-31  
+**Tipo:** Major Release  
+**Estado:** Estable - Proyecto completado  
+**Cambios:**
+- 🚀 **Versión estable**: Proyecto completado con todas las funcionalidades acordadas
+- 🔐 **Sistema de gestión por roles**: Implementación completa de permisos según rol de usuario
+- 📱 **Dashboard optimizado**: Interfaz adaptativa según permisos del usuario
+- 🐛 **Bug fixes**: Corrección de errores críticos reportados
+- 📊 **Sistema de auditoría**: Registro completo de todas las acciones
+
+**Nota:** Esta versión marca la finalización del desarrollo principal. Las próximas versiones serán solo correcciones de bugs (patch) o nuevas funcionalidades menores.
+
+### **v1.9.9** *(Previus Version - 2026-03-31)*
 **Tipo:** Feature Release  
 **Cambios:**
-- ✨ **Mejoras de UX**: Nueva interfaz optimizada para mejor experiencia de usuario
-- 🔧 **Correcciones de funcionalidad**: Se resolvieron errores críticos del sistema
+- ✨ **Mejoras de UX**: Nueva interfaz de acuerdo al rol del usuario
+- 🔧 **Correcciones de funcionalidad**: Se resolvieron errores críticos del sistema y manejo de información de acuerdo al rol
 - 📱 **Optimizaciones de interfaz**: Mejoras en el panel de administración
 - 🐛 **Bug fixes**: Corrección de errores reportados
 
-**Nota:** Esta versión incluye múltiples funcionalidades acumuladas debido a que el versionamiento semántico no se implementó desde el inicio del proyecto.
-
-### **v1.0.0** *(Initial Release)*
+### **v1.0.0** *(Initial Release - 2026-02-11)*
 **Fecha:** 2026-02-11  
 **Tipo:** Major Release  
 **Cambios:**

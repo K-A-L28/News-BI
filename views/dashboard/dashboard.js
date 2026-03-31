@@ -187,6 +187,7 @@ class Dashboard {
         this.loadData();
         this.startAutoRefresh();
         this.loadTestMode(); // Cargar estado del modo prueba
+        this.loadVersion(); // Cargar versión del sistema
     }
 
     setupEventListeners() {
@@ -708,11 +709,42 @@ class Dashboard {
             if (response.ok) {
                 const data = await response.json();
                 this.updateTestModeIndicator(data.is_test_mode);
-            } else {
-                this.showToast('Error cargando modo prueba', 'error');
             }
         } catch (error) {
-            this.showToast('Error cargando modo prueba', 'error');
+            // Silenciosamente ignorar errores de carga de modo prueba
+            console.log('No se pudo cargar el modo prueba');
+        }
+    }
+
+    async loadVersion() {
+        try {
+            const versionElement = document.getElementById('app-version');
+            if (!versionElement) {
+                console.error('Elemento app-version no encontrado en el DOM');
+                return;
+            }
+            
+            const response = await fetch('/api/version');
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.version) {
+                    versionElement.textContent = `v${data.version}`;
+                    console.log('Versión cargada:', data.version);
+                } else {
+                    versionElement.textContent = 'v?.?.?';
+                    console.warn('Respuesta de versión sin campo version:', data);
+                }
+            } else {
+                versionElement.textContent = 'v?.?.?';
+                console.error('Error HTTP al cargar versión:', response.status);
+            }
+        } catch (error) {
+            const versionElement = document.getElementById('app-version');
+            if (versionElement) {
+                versionElement.textContent = 'v?.?.?';
+            }
+            console.error('Error cargando versión:', error);
         }
     }
 
