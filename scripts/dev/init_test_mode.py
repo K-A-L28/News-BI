@@ -21,7 +21,8 @@ def init_test_mode_config():
             admin_user = User(
                 external_id="system_admin",
                 email="admin@system.com",
-                full_name="System Admin",
+                nombres="System",
+                apellidos="Admin",
                 role="ADMIN"
             )
             db.add(admin_user)

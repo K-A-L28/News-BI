@@ -30,7 +30,12 @@ class User(Base):
     __tablename__ = "users"
     user_id = Column(String, primary_key=True, default=generate_uuid)
     email = Column(String, unique=True, nullable=False, index=True)  # Email de Microsoft
-    full_name = Column(String, nullable=False)  # Nombre completo de Microsoft
+    nombres = Column(String, nullable=False)  # Nombres del usuario
+    apellidos = Column(String, nullable=False)  # Apellidos del usuario
+    telefono = Column(String, nullable=True)  # Teléfono del usuario
+    direccion = Column(String, nullable=True)  # Dirección del usuario
+    departamento = Column(String, nullable=True)  # Departamento del usuario
+    municipio = Column(String, nullable=True)  # Municipio del usuario
     role = Column(SQLEnum(UserRole), default=UserRole.USER, nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -210,7 +215,7 @@ class Area(Base):
 
 # --- FUNCIONES DE UTILIDAD ---
 
-def create_or_update_user(email: str, full_name: str, session, created_by: str = None):
+def create_or_update_user(email: str, nombres: str, apellidos: str, session, created_by: str = None, telefono: str = None, direccion: str = None, departamento: str = None, municipio: str = None):
     """
     Crea o actualiza un usuario desde la autenticación de Microsoft.
     Si el usuario no existe, se crea con rol USER por defecto.
@@ -220,15 +225,21 @@ def create_or_update_user(email: str, full_name: str, session, created_by: str =
     if user:
         # Actualizar último login y nombre si ha cambiado
         user.last_login = datetime.utcnow()
-        if user.full_name != full_name:
-            user.full_name = full_name
+        if user.nombres != nombres or user.apellidos != apellidos:
+            user.nombres = nombres
+            user.apellidos = apellidos
             user.updated_by = created_by
             user.updated_at = datetime.utcnow()
     else:
         # Crear nuevo usuario
         user = User(
             email=email,
-            full_name=full_name,
+            nombres=nombres,
+            apellidos=apellidos,
+            telefono=telefono,
+            direccion=direccion,
+            departamento=departamento,
+            municipio=municipio,
             role=UserRole.USER,
             created_by=created_by,
             last_login=datetime.utcnow()

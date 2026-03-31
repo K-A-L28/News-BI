@@ -818,7 +818,8 @@ class SystemEngine:
         if not admin_user:
             admin_user = User(
                 email="admin@system.com",
-                full_name="System Admin",
+                nombres="System",
+                apellidos="Admin",
                 role="ADMIN"
             )
             db.add(admin_user)
@@ -1474,7 +1475,8 @@ class PythonScriptWrapper:
         if not admin_user:
             admin_user = User(
                 email="admin@system.com",
-                full_name="System Admin",
+                nombres="System",
+                apellidos="Admin",
                 role="ADMIN"
             )
             db.add(admin_user)

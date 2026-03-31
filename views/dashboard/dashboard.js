@@ -151,7 +151,9 @@ class Dashboard {
         const userEmailElement = document.getElementById('user-email');
         
         if (userNameElement && this.currentUser) {
-            userNameElement.textContent = this.currentUser.full_name;
+            // Combinar nombres y apellidos para mostrar el nombre completo
+            const fullName = `${this.currentUser.nombres || ''} ${this.currentUser.apellidos || ''}`.trim();
+            userNameElement.textContent = fullName || 'Usuario';
         }
         if (userEmailElement && this.currentUser) {
             userEmailElement.textContent = this.currentUser.email;
@@ -3433,7 +3435,12 @@ async function handleUserRegistration(e) {
             },
             body: JSON.stringify({
                 email: formData.get('email'),
-                full_name: formData.get('full_name'),
+                nombres: formData.get('nombres'),
+                apellidos: formData.get('apellidos'),
+                telefono: formData.get('telefono'),
+                direccion: formData.get('direccion'),
+                departamento: formData.get('departamento'),
+                municipio: formData.get('municipio'),
                 role: formData.get('role'),
                 empresa_id: formData.get('empresa'),
                 sede_id: formData.get('sede'),
@@ -3524,7 +3531,7 @@ function renderUsersTable() {
         const row = document.createElement('tr');
         row.innerHTML = `
             <td title="${user.user_id}">${user.user_id.substring(0, 8)}...</td>
-            <td>${user.full_name}</td>
+            <td>${(user.nombres || '') + ' ' + (user.apellidos || '')}</td>
             <td>${user.email}</td>
             <td>
                 <span class="role-badge ${getRoleClass(user.role)}">${getRoleDisplayName(user.role)}</span>
@@ -3596,7 +3603,9 @@ function searchUsers() {
     } else {
         filteredUsers = allUsers.filter(user => 
             user.user_id.toLowerCase().includes(searchTerm) ||
-            user.full_name.toLowerCase().includes(searchTerm) ||
+            (user.nombres && user.nombres.toLowerCase().includes(searchTerm)) ||
+            (user.apellidos && user.apellidos.toLowerCase().includes(searchTerm)) ||
+            ((user.nombres || '') + ' ' + (user.apellidos || '')).toLowerCase().includes(searchTerm) ||
             user.email.toLowerCase().includes(searchTerm) ||
             user.role.toLowerCase().includes(searchTerm)
         );
@@ -3628,12 +3637,22 @@ function editUser(userId) {
     // Cargar los datos del usuario después de que el formulario esté visible
     setTimeout(() => {
         // Cargar los datos en el formulario de edición
-        const nameField = document.getElementById('edit-user-full-name');
+        const nombresField = document.getElementById('edit-user-nombres');
+        const apellidosField = document.getElementById('edit-user-apellidos');
+        const telefonoField = document.getElementById('edit-user-telefono');
+        const direccionField = document.getElementById('edit-user-direccion');
+        const departamentoField = document.getElementById('edit-user-departamento');
+        const municipioField = document.getElementById('edit-user-municipio');
         const emailField = document.getElementById('edit-user-email');
         const roleField = document.getElementById('edit-user-role');
         const empresaField = document.getElementById('edit-user-empresa');
         
-        if (nameField) nameField.value = user.full_name || '';
+        if (nombresField) nombresField.value = user.nombres || '';
+        if (apellidosField) apellidosField.value = user.apellidos || '';
+        if (telefonoField) telefonoField.value = user.telefono || '';
+        if (direccionField) direccionField.value = user.direccion || '';
+        if (departamentoField) departamentoField.value = user.departamento || '';
+        if (municipioField) municipioField.value = user.municipio || '';
         if (emailField) {
             emailField.value = user.email;
             console.log('Campo email configurado como readonly (formulario de edición)');
@@ -3679,7 +3698,7 @@ function editUser(userId) {
         }
         userIdField.value = userId;
         
-        showToast(`Editando usuario: ${user.full_name}`, 'info');
+        showToast(`Editando usuario: ${(user.nombres || '') + ' ' + (user.apellidos || '')}`, 'info');
     }, 200); // Pequeño retraso para asegurar que el DOM esté listo
 }
 
@@ -3894,7 +3913,12 @@ async function handleUserEdit(e) {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                full_name: formData.get('full_name'),
+                nombres: formData.get('nombres'),
+                apellidos: formData.get('apellidos'),
+                telefono: formData.get('telefono'),
+                direccion: formData.get('direccion'),
+                departamento: formData.get('departamento'),
+                municipio: formData.get('municipio'),
                 role: formData.get('role'),
                 empresa_id: formData.get('empresa'),
                 sede_id: formData.get('sede'),

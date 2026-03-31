@@ -129,7 +129,12 @@ class AreaResponse(BaseModel):
 
 class UserRegistrationRequest(BaseModel):
     email: str
-    full_name: str
+    nombres: str
+    apellidos: str
+    telefono: Optional[str] = None
+    direccion: Optional[str] = None
+    departamento: Optional[str] = None
+    municipio: Optional[str] = None
     role: str
     empresa_id: str
     sede_id: Optional[str] = None
@@ -138,7 +143,12 @@ class UserRegistrationRequest(BaseModel):
 class UserResponse(BaseModel):
     user_id: str
     email: str
-    full_name: str
+    nombres: str
+    apellidos: str
+    telefono: Optional[str] = None
+    direccion: Optional[str] = None
+    departamento: Optional[str] = None
+    municipio: Optional[str] = None
     role: str
     empresa_id: Optional[str] = None
     sede_id: Optional[str] = None
@@ -147,7 +157,12 @@ class UserResponse(BaseModel):
     created_at: str
 
 class UserUpdateRequest(BaseModel):
-    full_name: Optional[str] = None
+    nombres: Optional[str] = None
+    apellidos: Optional[str] = None
+    telefono: Optional[str] = None
+    direccion: Optional[str] = None
+    departamento: Optional[str] = None
+    municipio: Optional[str] = None
     role: Optional[str] = None
     empresa_id: Optional[str] = None
     sede_id: Optional[str] = None
@@ -1858,9 +1873,16 @@ async def microsoft_callback(request: Request):
         try:
             from models.database import create_or_update_user
             
+            # Separar nombres y apellidos del nombre completo
+            full_name = user_data.get('name', 'Usuario')
+            name_parts = full_name.split(' ', 1)
+            nombres = name_parts[0] if len(name_parts) > 0 else 'Usuario'
+            apellidos = name_parts[1] if len(name_parts) > 1 else ''
+            
             user = create_or_update_user(
                 email=user_data.get('preferred_username') or user_data.get('email'),
-                full_name=user_data.get('name', 'Usuario'),
+                nombres=nombres,
+                apellidos=apellidos,
                 session=db
             )
             
@@ -1875,7 +1897,8 @@ async def microsoft_callback(request: Request):
                 session=db,
                 new_value={
                     "email": user.email,
-                    "full_name": user.full_name,
+                    "nombres": user.nombres,
+                    "apellidos": user.apellidos,
                     "login_method": "MICROSOFT_OAUTH2"
                 }
             )
@@ -1884,7 +1907,8 @@ async def microsoft_callback(request: Request):
             session_token = create_user_session({
                 'user_id': user.user_id,
                 'email': user.email,
-                'full_name': user.full_name,
+                'nombres': user.nombres,
+                'apellidos': user.apellidos,
                 'role': user.role.value
             })
             
@@ -2049,7 +2073,7 @@ async def download_audit_logs(request: Request):
                 else:
                     entity_description = f"Schedule (ID: {audit_log.entity_id})"
             elif audit_log.entity_type == 'USER':
-                entity_description = f"{user.full_name if user else 'N/A'} (ID: {audit_log.entity_id})"
+                entity_description = f"{(user.nombres or '') + ' ' + (user.apellidos or '') if user else 'N/A'} (ID: {audit_log.entity_id})"
             elif audit_log.entity_type == 'SYSTEM_CONFIG':
                 config_names = {
                     'emailRemitente': 'Email Remitente',
@@ -2091,7 +2115,7 @@ async def download_audit_logs(request: Request):
                 audit_log.entity_type,
                 entity_description,
                 audit_log.action,
-                user.full_name if user else 'N/A',
+                (user.nombres or '') + ' ' + (user.apellidos or '') if user else 'N/A',
                 user.email if user else 'N/A',
                 old_value,
                 new_value
@@ -2142,7 +2166,8 @@ async def get_current_user(request: Request):
         return {
             'user_id': user_data.get('user_id'),
             'email': user_data.get('email'),
-            'full_name': user_data.get('full_name'),
+            'nombres': user_data.get('nombres', ''),
+            'apellidos': user_data.get('apellidos', ''),
             'role': user_data.get('role')
         }
         
@@ -2258,7 +2283,8 @@ async def test_audit(request: Request):
         user_info = {
             "user_id": request.state.user.get("user_id") if hasattr(request.state, 'user') and request.state.user else None,
             "email": request.state.user.get("email") if hasattr(request.state, 'user') and request.state.user else None,
-            "full_name": request.state.user.get("full_name") if hasattr(request.state, 'user') and request.state.user else None
+            "nombres": request.state.user.get("nombres", '') if hasattr(request.state, 'user') and request.state.user else '',
+            "apellidos": request.state.user.get("apellidos", '') if hasattr(request.state, 'user') and request.state.user else ''
         }
         
         # Crear auditoría de prueba
@@ -2706,7 +2732,12 @@ async def register_user(request: Request, user_data: UserRegistrationRequest):
         # Crear usuario
         user = User(
             email=user_data.email,
-            full_name=user_data.full_name,  # Usar el nombre del formulario
+            nombres=user_data.nombres,
+            apellidos=user_data.apellidos,
+            telefono=user_data.telefono,
+            direccion=user_data.direccion,
+            departamento=user_data.departamento,
+            municipio=user_data.municipio,
             role=role_enum,
             empresa_id=user_data.empresa_id,
             sede_id=user_data.sede_id,
@@ -2726,7 +2757,12 @@ async def register_user(request: Request, user_data: UserRegistrationRequest):
             session=db,
             new_value={
                 "email": user.email,
-                "full_name": user.full_name,
+                "nombres": user.nombres,
+                "apellidos": user.apellidos,
+                "telefono": user.telefono,
+                "direccion": user.direccion,
+                "departamento": user.departamento,
+                "municipio": user.municipio,
                 "role": user.role.value,
                 "empresa_id": user.empresa_id,
                 "sede_id": user.sede_id,
@@ -2790,7 +2826,12 @@ async def get_users(request: Request):
                 result.append(UserResponse(
                     user_id=user.user_id,
                     email=user.email,
-                    full_name=user.full_name,
+                    nombres=user.nombres or '',
+                    apellidos=user.apellidos or '',
+                    telefono=user.telefono,
+                    direccion=user.direccion,
+                    departamento=user.departamento,
+                    municipio=user.municipio,
                     role=role_value,
                     empresa_id=user.empresa_id,
                     sede_id=user.sede_id,
@@ -2829,7 +2870,12 @@ async def update_user(request: Request, user_id: str, user_data: UserUpdateReque
         
         # Guardar valores antiguos para auditoría
         old_values = {
-            "full_name": user.full_name,
+            "nombres": user.nombres,
+            "apellidos": user.apellidos,
+            "telefono": user.telefono,
+            "direccion": user.direccion,
+            "departamento": user.departamento,
+            "municipio": user.municipio,
             "role": user.role.value,
             "empresa_id": user.empresa_id,
             "sede_id": user.sede_id,
@@ -2838,8 +2884,18 @@ async def update_user(request: Request, user_id: str, user_data: UserUpdateReque
         }
         
         # Actualizar campos
-        if user_data.full_name is not None:
-            user.full_name = user_data.full_name
+        if user_data.nombres is not None:
+            user.nombres = user_data.nombres
+        if user_data.apellidos is not None:
+            user.apellidos = user_data.apellidos
+        if user_data.telefono is not None:
+            user.telefono = user_data.telefono
+        if user_data.direccion is not None:
+            user.direccion = user_data.direccion
+        if user_data.departamento is not None:
+            user.departamento = user_data.departamento
+        if user_data.municipio is not None:
+            user.municipio = user_data.municipio
         if user_data.role is not None:
             # Validar que el rol sea válido
             valid_roles = [UserRole.USER.value, UserRole.ADMIN.value, UserRole.DEVELOPER.value]
@@ -2862,7 +2918,12 @@ async def update_user(request: Request, user_id: str, user_data: UserUpdateReque
         try:
             audit_db = SessionLocal()
             new_values = {
-                "full_name": user.full_name,
+                "nombres": user.nombres,
+                "apellidos": user.apellidos,
+                "telefono": user.telefono,
+                "direccion": user.direccion,
+                "departamento": user.departamento,
+                "municipio": user.municipio,
                 "role": user.role.value,
                 "empresa_id": user.empresa_id,
                 "sede_id": user.sede_id,
@@ -2891,7 +2952,12 @@ async def update_user(request: Request, user_id: str, user_data: UserUpdateReque
         return UserResponse(
             user_id=user.user_id,
             email=user.email,
-            full_name=user.full_name,
+            nombres=user.nombres or '',
+            apellidos=user.apellidos or '',
+            telefono=user.telefono,
+            direccion=user.direccion,
+            departamento=user.departamento,
+            municipio=user.municipio,
             role=user.role.value,
             empresa_id=user.empresa_id,
             sede_id=user.sede_id,
