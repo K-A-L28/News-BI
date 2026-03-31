@@ -430,6 +430,26 @@ class SystemEngine:
         finally:
             db.close()
 
+    def _get_test_email_from_db(self) -> str:
+        """
+        Obtiene el correo de prueba desde la configuración guardada en la base de datos.
+        
+        Returns:
+            str: Correo de prueba configurado o el valor por defecto
+        """
+        db = SessionLocal()
+        try:
+            config = db.query(SystemConfig).filter(SystemConfig.config_key == 'test_email').first()
+            if config and config.config_value:
+                return config.config_value
+            else:
+                return 'k.acevedo@clinicassanrafael.com'
+        except Exception as e:
+            self.logger.error(f"❌ Error cargando correo de prueba: {str(e)}")
+            return 'k.acevedo@clinicassanrafael.com'
+        finally:
+            db.close()
+
     def get_auth_config(self, newsletter_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Obtiene la configuración de autenticación desde variables de entorno.
@@ -459,11 +479,11 @@ class SystemEngine:
         else:
             destinatarios_cco = DESTINATARIOS_CCO
         
-        # Si está en modo prueba, override destinatarios
+        # Si está en modo prueba, override destinatarios con el correo de prueba configurado
         if is_test_mode:
-            test_email = "k.acevedo@clinicassanrafael.com"
+            test_email = self._get_test_email_from_db()
             destinatarios_cco = [test_email]
-            self.logger.info(f" MODO PRUEBA ACTIVADO - Enviando a: {test_email}")
+            self.logger.info(f"🧪 MODO PRUEBA ACTIVADO - Enviando a: {test_email}")
         
         # Recargar variables de entorno dinámicamente para obtener las credenciales más recientes
         reload_env_variables()

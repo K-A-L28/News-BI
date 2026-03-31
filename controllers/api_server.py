@@ -1145,6 +1145,70 @@ async def update_schedule(request: Request, schedule_id: str):
     finally:
         db.close()
 
+@app.put("/api/schedule/{schedule_id}/email-list")
+@authenticate_user()
+async def update_schedule_email_list(request: Request, schedule_id: str):
+    """API para que USER actualice solo la lista de correos de un boletín"""
+    db = SessionLocal()
+    try:
+        schedule = db.query(Schedule).filter(Schedule.schedule_id == schedule_id).first()
+        if not schedule:
+            raise HTTPException(status_code=404, detail="Tarea no encontrada")
+        
+        # Obtener datos del request
+        data = await request.json()
+        email_list_id = data.get('email_list_id')
+        
+        if not email_list_id:
+            raise HTTPException(status_code=400, detail="email_list_id es requerido")
+        
+        # Verificar que la lista de correos existe
+        email_list = db.query(EmailList).filter(EmailList.list_id == email_list_id).first()
+        if not email_list:
+            raise HTTPException(status_code=404, detail="Lista de correos no encontrada")
+        
+        # Obtener newsletter anterior para auditoría
+        old_newsletter = db.query(Newsletter).filter(Newsletter.newsletter_id == schedule.newsletter_id).first()
+        old_email_list_id = old_newsletter.email_list_id if old_newsletter else None
+        
+        # Actualizar solo la lista de correos del newsletter
+        if old_newsletter:
+            old_newsletter.email_list_id = email_list_id
+            old_newsletter.updated_at = datetime.utcnow()
+            
+            db.commit()
+            
+            # Auditoría: Cambio en lista de correos
+            create_audit_log(
+                entity_type="NEWSLETTER",
+                entity_id=schedule.newsletter_id,
+                action="UPDATE_EMAIL_LIST",
+                performed_by=request.state.user["user_id"],
+                session=db,
+                old_value={"email_list_id": old_email_list_id},
+                new_value={"email_list_id": email_list_id}
+            )
+            
+            logger.info(f"📧 Lista de correos actualizada por USER: {old_email_list_id} -> {email_list_id}")
+            
+            return {
+                'success': True,
+                'message': 'Lista de correos actualizada exitosamente',
+                'email_list_id': email_list_id,
+                'email_list_name': email_list.list_name
+            }
+        else:
+            raise HTTPException(status_code=404, detail="Newsletter no encontrado")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error actualizando lista de correos: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Error actualizando lista de correos")
+    finally:
+        db.close()
+
 @app.get("/api/test-mode")
 async def get_test_mode():
     """API para obtener estado del modo prueba"""
@@ -1275,19 +1339,34 @@ async def set_test_mode(request: Request):
     """API para activar o desactivar el modo prueba - Solo Desarrolladores"""
     db = SessionLocal()
     try:
-        # Verificar autenticación y rol de desarrollador
-        current_user = await get_current_user_from_request(request, db)
-        if not current_user:
-            raise HTTPException(status_code=401, detail="No autenticado")
+        # Verificar autenticación mediante sesión
+        session_token = request.cookies.get("session_token")
         
-        if current_user.role != UserRole.DEVELOPER:
+        if not session_token or not is_session_valid(session_token):
+            raise HTTPException(status_code=401, detail="Autenticación requerida")
+        
+        session_data = get_user_from_session(session_token)
+        if not session_data or not session_data.get("user"):
+            raise HTTPException(status_code=401, detail="Sesión inválida o expirada")
+        
+        user_data = session_data.get("user")
+        user_role = user_data.get("role", "")
+        user_id = user_data.get("user_id")
+        
+        # Verificar que sea DEVELOPER
+        if user_role != "DEVELOPER":
             raise HTTPException(status_code=403, detail="Solo los desarrolladores pueden cambiar el modo prueba")
         
         # Obtener datos del request
         data = await request.json()
         is_test_mode = data.get('is_test_mode', False)
+        test_email = data.get('test_email', '').strip()
         
-        # Buscar configuración existente
+        # Validar email si se está activando el modo prueba
+        if is_test_mode and not test_email:
+            raise HTTPException(status_code=400, detail="Se requiere un correo de prueba válido para activar el modo prueba")
+        
+        # Buscar configuración existente del modo prueba
         existing_config = db.query(SystemConfig).filter(SystemConfig.config_key == 'is_test_mode').first()
         
         old_value = existing_config.config_value if existing_config else 'false'
@@ -1296,7 +1375,7 @@ async def set_test_mode(request: Request):
             # Actualizar existente
             existing_config.config_value = str(is_test_mode).lower()
             existing_config.updated_at = datetime.utcnow()
-            existing_config.updated_by = current_user.user_id
+            existing_config.updated_by = user_id
         else:
             # Crear nueva configuración
             new_config = SystemConfig(
@@ -1307,6 +1386,21 @@ async def set_test_mode(request: Request):
             )
             db.add(new_config)
         
+        # Guardar o actualizar el correo de prueba
+        existing_test_email_config = db.query(SystemConfig).filter(SystemConfig.config_key == 'test_email').first()
+        if existing_test_email_config:
+            existing_test_email_config.config_value = test_email
+            existing_test_email_config.updated_at = datetime.utcnow()
+            existing_test_email_config.updated_by = user_id
+        else:
+            new_test_email_config = SystemConfig(
+                config_key='test_email',
+                config_value=test_email,
+                config_type='string',
+                description='Correo electrónico de prueba para modo prueba'
+            )
+            db.add(new_test_email_config)
+        
         db.commit()
         
         # Auditoría: Cambio en configuración de modo prueba
@@ -1314,17 +1408,18 @@ async def set_test_mode(request: Request):
             entity_type="SYSTEM_CONFIG",
             entity_id="is_test_mode",
             action="UPDATE",
-            performed_by=current_user.user_id,
+            performed_by=user_id,
             session=db,
-            old_value={"is_test_mode": old_value},
-            new_value={"is_test_mode": str(is_test_mode).lower()}
+            old_value={"is_test_mode": old_value, "test_email": existing_test_email_config.config_value if existing_test_email_config else ''},
+            new_value={"is_test_mode": str(is_test_mode).lower(), "test_email": test_email}
         )
         
-        logger.info(f"🧪 Modo prueba {'activado' if is_test_mode else 'desactivado'}")
+        logger.info(f"🧪 Modo prueba {'activado' if is_test_mode else 'desactivado'} - Email: {test_email}")
         
         return {
             'success': True,
             'is_test_mode': is_test_mode,
+            'test_email': test_email,
             'message': f"Modo prueba {'activado' if is_test_mode else 'desactivado'} exitosamente"
         }
         
@@ -1332,6 +1427,81 @@ async def set_test_mode(request: Request):
         db.rollback()
         logger.error(f"Error configurando modo prueba: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error configurando modo prueba: {str(e)}")
+    finally:
+        db.close()
+
+@app.post("/api/test-email")
+async def save_test_email(request: Request):
+    """API para guardar solo el correo de prueba - Solo Desarrolladores"""
+    db = SessionLocal()
+    try:
+        # Verificar autenticación mediante sesión
+        session_token = request.cookies.get("session_token")
+        
+        if not session_token or not is_session_valid(session_token):
+            raise HTTPException(status_code=401, detail="Autenticación requerida")
+        
+        session_data = get_user_from_session(session_token)
+        if not session_data or not session_data.get("user"):
+            raise HTTPException(status_code=401, detail="Sesión inválida o expirada")
+        
+        user_data = session_data.get("user")
+        user_role = user_data.get("role", "")
+        user_id = user_data.get("user_id")
+        
+        # Verificar que sea DEVELOPER
+        if user_role != "DEVELOPER":
+            raise HTTPException(status_code=403, detail="Solo los desarrolladores pueden cambiar el correo de prueba")
+        
+        # Obtener datos del request
+        data = await request.json()
+        test_email = data.get('test_email', '').strip()
+        
+        if not test_email:
+            raise HTTPException(status_code=400, detail="Se requiere un correo de prueba válido")
+        
+        # Guardar o actualizar el correo de prueba
+        existing_test_email_config = db.query(SystemConfig).filter(SystemConfig.config_key == 'test_email').first()
+        old_value = existing_test_email_config.config_value if existing_test_email_config else ''
+        
+        if existing_test_email_config:
+            existing_test_email_config.config_value = test_email
+            existing_test_email_config.updated_at = datetime.utcnow()
+            existing_test_email_config.updated_by = user_id
+        else:
+            new_test_email_config = SystemConfig(
+                config_key='test_email',
+                config_value=test_email,
+                config_type='string',
+                description='Correo electrónico de prueba para modo prueba'
+            )
+            db.add(new_test_email_config)
+        
+        db.commit()
+        
+        # Auditoría: Cambio en correo de prueba
+        create_audit_log(
+            entity_type="SYSTEM_CONFIG",
+            entity_id="test_email",
+            action="UPDATE",
+            performed_by=user_id,
+            session=db,
+            old_value={"test_email": old_value},
+            new_value={"test_email": test_email}
+        )
+        
+        logger.info(f"📧 Correo de prueba actualizado: {test_email}")
+        
+        return {
+            'success': True,
+            'test_email': test_email,
+            'message': f"Correo de prueba guardado exitosamente: {test_email}"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error guardando correo de prueba: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error guardando correo de prueba: {str(e)}")
     finally:
         db.close()
 
@@ -1359,7 +1529,8 @@ async def get_settings():
             'emailRemitente': os.getenv('MAIL_SENDER', 'noreply@empresa.com'),
             'piePagina': '© 2026 Clínicas San Rafael. Todos los derechos reservados.',
             'limiteCorreos': 100,
-            'is_test_mode': False
+            'is_test_mode': False,
+            'test_email': 'k.acevedo@clinicassanrafael.com'
         }
         
         # Combinar con valores por defecto

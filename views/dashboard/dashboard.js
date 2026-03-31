@@ -579,13 +579,25 @@ class Dashboard {
                 </label>
                 <small class="form-text" style="color: var(--test-color); font-weight: 500;">
                     <i class="fas fa-flask"></i> 
-                    Al activar el modo prueba, todos los correos se enviarán únicamente a: k.acevedo@clinicassanrafael.com
+                    Al activar el modo prueba, todos los correos se enviarán únicamente al correo de prueba configurado
                 </small>
+            </div>
+            
+            <div class="form-group" id="test-email-group">
+                <label>Correo de Prueba:</label>
+                <input type="email" id="test-email" class="form-control" placeholder="test@example.com" value="">
+                <small class="form-text" style="color: var(--test-color);">
+                    <i class="fas fa-envelope"></i> 
+                    Correo que recibirá todos los boletines cuando el modo prueba esté activo
+                </small>
+                <button type="button" class="btn-primary btn-size" onclick="dashboard.saveTestEmail()" style="margin-top: 0.8rem;">
+                    <i class="fas fa-save"></i> Guardar Correo de Prueba
+                </button>
             </div>
         ` : '';
         
         this.showModal('Configuración General', `
-            ${testModeSection}onclick="downloadAuditLogs()"
+            ${testModeSection}
             
             <div class="form-group">
                 <label>Dominios Permitidos:</label>
@@ -660,6 +672,14 @@ class Dashboard {
                     testModeCheckbox.checked = settings.is_test_mode;
                 }
                 
+                // Cargar correo de prueba si existe
+                if (settings.test_email) {
+                    const testEmailInput = document.getElementById('test-email');
+                    if (testEmailInput) {
+                        testEmailInput.value = settings.test_email;
+                    }
+                }
+                
                 // Cargar dominios permitidos
                 try {
                     const domainsResponse = await fetch('/api/config/allowed-domains');
@@ -708,7 +728,16 @@ class Dashboard {
     async toggleTestMode() {
         try {
             const checkbox = document.getElementById('test-mode-checkbox');
+            const testEmailInput = document.getElementById('test-email');
             const newTestMode = checkbox.checked;
+            const testEmail = testEmailInput ? testEmailInput.value.trim() : '';
+            
+            // Validar email si se está activando el modo prueba
+            if (newTestMode && !testEmail) {
+                this.showToast('Por favor ingresa un correo de prueba válido', 'error');
+                checkbox.checked = false;
+                return;
+            }
             
             const response = await fetch('/api/test-mode', {
                 method: 'POST',
@@ -716,7 +745,8 @@ class Dashboard {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    is_test_mode: newTestMode
+                    is_test_mode: newTestMode,
+                    test_email: testEmail
                 })
             });
             
@@ -724,21 +754,54 @@ class Dashboard {
                 const result = await response.json();
                 this.updateTestModeIndicator(newTestMode);
                 this.showToast(result.message, 'success');
-                
-                if (newTestMode) {
-                } else {
-                }
             } else {
                 const error = await response.json();
                 this.showToast(error.detail || 'Error cambiando modo prueba', 'error');
-                // Revertir checkbox si hubo error
                 checkbox.checked = !newTestMode;
             }
         } catch (error) {
             this.showToast('Error cambiando modo prueba', 'error');
-            // Revertir checkbox si hubo error
             const checkbox = document.getElementById('test-mode-checkbox');
             checkbox.checked = !checkbox.checked;
+        }
+    }
+
+    async saveTestEmail() {
+        try {
+            const testEmailInput = document.getElementById('test-email');
+            const testEmail = testEmailInput ? testEmailInput.value.trim() : '';
+            
+            if (!testEmail) {
+                this.showToast('Por favor ingresa un correo de prueba válido', 'error');
+                return;
+            }
+            
+            // Validar formato de email
+            const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailPattern.test(testEmail)) {
+                this.showToast('Por favor ingresa un correo válido', 'error');
+                return;
+            }
+            
+            const response = await fetch('/api/test-email', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    test_email: testEmail
+                })
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                this.showToast(result.message || 'Correo de prueba guardado exitosamente', 'success');
+            } else {
+                const error = await response.json();
+                this.showToast(error.detail || 'Error guardando correo de prueba', 'error');
+            }
+        } catch (error) {
+            this.showToast('Error guardando correo de prueba', 'error');
         }
     }
 
@@ -1114,60 +1177,78 @@ class Dashboard {
     async saveSchedule(id, userRole) {
         try {
             // Get form values
-            const newsletterId = document.getElementById('newsletter-select').value;
             const emailListId = document.getElementById('email-list-select').value;
-            const sendTime = document.getElementById('time-input').value;
-            const timezone = document.getElementById('timezone-select').value;
-            const isEnabled = document.getElementById('enabled-checkbox').checked;
             
             // Validate inputs based on user role
             const isAdmin = userRole === 'ADMIN' || userRole === 'DEVELOPER';
+            const isUser = userRole === 'USER';
             
-            if (!isAdmin) {
-                // USER role: only email list is required, other fields are disabled
-                if (!emailListId) {
-                    this.showToast('Por favor selecciona una lista de correos', 'error');
-                    return;
+            if (!emailListId) {
+                this.showToast('Por favor selecciona una lista de correos', 'error');
+                return;
+            }
+            
+            // USER role: only update email list using specific endpoint
+            if (isUser) {
+                const response = await fetch(`/api/schedule/${id}/email-list`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ email_list_id: emailListId })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok && result.success) {
+                    this.showToast('Lista de correos actualizada exitosamente', 'success');
+                    this.closeModal();
+                } else {
+                    throw new Error(result.message || 'Error actualizando lista de correos');
                 }
             } else {
-                // ADMIN/DEVELOPER: all fields are required
+                // ADMIN/DEVELOPER: use full update endpoint
+                const newsletterId = document.getElementById('newsletter-select').value;
+                const sendTime = document.getElementById('time-input').value;
+                const timezone = document.getElementById('timezone-select').value;
+                const isEnabled = document.getElementById('enabled-checkbox').checked;
+                
                 if (!newsletterId || !sendTime) {
                     this.showToast('Por favor completa todos los campos requeridos', 'error');
                     return;
                 }
-            }
-            
-            // Create FormData for file upload
-            const formData = new FormData();
-            formData.append('newsletter_id', newsletterId);
-            formData.append('email_list_id', emailListId);
-            formData.append('send_time', sendTime);
-            formData.append('timezone', timezone);
-            formData.append('is_enabled', isEnabled);
-            
-            // Add files if they were selected
-            
-            if (this.editFiles && this.editFiles['email-template']) {
-                formData.append('email_template', this.editFiles['email-template']);
-            }
-            
-            if (this.editFiles && this.editFiles['email-csv']) {
-                formData.append('email_csv', this.editFiles['email-csv']);
-            }
-            
-            // Send update request
-            const response = await fetch(`/api/schedule/${id}`, {
-                method: 'PUT',
-                body: formData
-            });
-            
-            const result = await response.json();
-            
-            if (response.ok && result.success) {
-                this.showToast('Tarea actualizada exitosamente', 'success');
-                this.closeModal();
-            } else {
-                throw new Error(result.message || 'Error actualizando tarea');
+                
+                // Create FormData for file upload
+                const formData = new FormData();
+                formData.append('newsletter_id', newsletterId);
+                formData.append('email_list_id', emailListId);
+                formData.append('send_time', sendTime);
+                formData.append('timezone', timezone);
+                formData.append('is_enabled', isEnabled);
+                
+                // Add files if they were selected
+                if (this.editFiles && this.editFiles['email-template']) {
+                    formData.append('email_template', this.editFiles['email-template']);
+                }
+                
+                if (this.editFiles && this.editFiles['email-csv']) {
+                    formData.append('email_csv', this.editFiles['email-csv']);
+                }
+                
+                // Send update request
+                const response = await fetch(`/api/schedule/${id}`, {
+                    method: 'PUT',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok && result.success) {
+                    this.showToast('Tarea actualizada exitosamente', 'success');
+                    this.closeModal();
+                } else {
+                    throw new Error(result.message || 'Error actualizando tarea');
+                }
             }
             
         } catch (error) {
