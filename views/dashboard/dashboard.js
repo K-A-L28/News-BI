@@ -7,6 +7,7 @@ let allUsers = [];
 let currentPage = 1;
 let usersPerPage = 6;
 let filteredUsers = [];
+let currentStatusFilter = 'all'; // 'all', 'active', 'inactive'
 
 // Función global para manejar el registro de usuarios
 function handleUserRegistrationClick() {
@@ -3589,25 +3590,53 @@ function nextUserPage() {
     }
 }
 
-function searchUsers() {
+function filterUsersByStatus(status) {
+    // Actualizar el filtro actual
+    currentStatusFilter = status;
+    
+    // Actualizar botones activos
+    document.querySelectorAll('.filter-status .btn-filter').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.filter === status) {
+            btn.classList.add('active');
+        }
+    });
+    
+    // Aplicar filtro
+    applyFilters();
+}
+
+function applyFilters() {
     const searchTerm = document.getElementById('user-search').value.toLowerCase().trim();
     
-    if (searchTerm === '') {
-        filteredUsers = [...allUsers];
-    } else {
-        filteredUsers = allUsers.filter(user => 
+    // Filtrar por estado
+    let tempUsers = allUsers;
+    if (currentStatusFilter === 'active') {
+        tempUsers = tempUsers.filter(user => user.is_active === true);
+    } else if (currentStatusFilter === 'inactive') {
+        tempUsers = tempUsers.filter(user => user.is_active === false);
+    }
+    
+    // Filtrar por término de búsqueda
+    if (searchTerm !== '') {
+        tempUsers = tempUsers.filter(user => 
             user.user_id.toLowerCase().includes(searchTerm) ||
-            (user.nombres && user.nombres.toLowerCase().includes(searchTerm)) ||
-            (user.apellidos && user.apellidos.toLowerCase().includes(searchTerm)) ||
-            ((user.nombres || '') + ' ' + (user.apellidos || '')).toLowerCase().includes(searchTerm) ||
+            (user.nombres || '').toLowerCase().includes(searchTerm) ||
+            (user.apellidos || '').toLowerCase().includes(searchTerm) ||
             user.email.toLowerCase().includes(searchTerm) ||
-            user.role.toLowerCase().includes(searchTerm)
+            (user.role || '').toLowerCase().includes(searchTerm)
         );
     }
     
+    filteredUsers = tempUsers;
     currentPage = 1;
     renderUsersTable();
     updatePagination();
+}
+
+function searchUsers() {
+    // Usar applyFilters para mantener consistencia con el filtro de estado
+    applyFilters();
 }
 
 function viewUser(userId) {
@@ -3721,6 +3750,7 @@ function editUser(userId) {
         const municipioField = document.getElementById('edit-user-municipio');
         const emailField = document.getElementById('edit-user-email');
         const roleField = document.getElementById('edit-user-role');
+        const statusField = document.getElementById('edit-user-status');
         const empresaField = document.getElementById('edit-user-empresa');
         
         if (nombresField) nombresField.value = user.nombres || '';
@@ -3733,6 +3763,7 @@ function editUser(userId) {
             emailField.value = user.email;
         }
         if (roleField) roleField.value = user.role;
+        if (statusField) statusField.value = user.is_active ? 'true' : 'false';
         
         // Cargar empresas y luego seleccionar la del usuario
         loadEmpresasForEdit().then(() => {
@@ -3977,10 +4008,31 @@ async function handleUserEdit(e) {
         return;
     }
     
+    const userId = userIdField.value;
     const formData = new FormData(e.target);
+    const newIsActive = formData.get('is_active') === 'true';
+    
+    // Buscar el usuario original para comparar el estado
+    const originalUser = allUsers.find(u => u.user_id === userId);
+    
+    // Verificar si el estado ha cambiado
+    if (originalUser && originalUser.is_active !== newIsActive) {
+        const actionText = newIsActive ? 'ACTIVAR' : 'DESACTIVAR';
+        const message = newIsActive 
+            ? `¿Estás seguro de que deseas ACTIVAR al usuario ${originalUser.nombres} ${originalUser.apellidos}?\n\nEl usuario podrá iniciar sesión nuevamente.`
+            : `¿Estás seguro de que deseas DESACTIVAR al usuario ${originalUser.nombres} ${originalUser.apellidos}?\n\nEl usuario NO podrá iniciar sesión hasta ser reactivado.`;
+        
+        // Mostrar diálogo de confirmación
+        const confirmed = confirm(`⚠️ CONFIRMACIÓN REQUERIDA\n\n${message}\n\n`);
+        
+        if (!confirmed) {
+            // Usuario canceló, no enviar el formulario
+            return;
+        }
+    }
     
     try {
-        const response = await fetch(`/api/users/${userIdField.value}`, {
+        const response = await fetch(`/api/users/${userId}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
@@ -3993,6 +4045,7 @@ async function handleUserEdit(e) {
                 departamento: formData.get('departamento'),
                 municipio: formData.get('municipio'),
                 role: formData.get('role'),
+                is_active: newIsActive,
                 empresa_id: formData.get('empresa'),
                 sede_id: formData.get('sede'),
                 area_id: formData.get('area')

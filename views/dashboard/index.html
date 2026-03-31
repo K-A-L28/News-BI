@@ -512,6 +512,14 @@
                                 <option value="DEVELOPER">Desarrollador</option>
                             </select>
                         </div>
+                        <div class="form-group">
+                            <label for="edit-user-status">Estado del Usuario:</label>
+                            <select id="edit-user-status" name="is_active" required>
+                                <option value="true">Activo</option>
+                                <option value="false">Inactivo</option>
+                            </select>
+                            <small class="form-text text-muted">Cambiar a "Inactivo" deshabilitará el acceso del usuario</small>
+                        </div>
                     </div>
                     
                     <div class="form-row">
@@ -667,6 +675,17 @@
                             <i class="fas fa-search"></i>
                         </button>
                     </div>
+                    <div class="filter-status">
+                        <button type="button" class="btn-filter active" data-filter="all" onclick="filterUsersByStatus('all')">
+                            <i class="fas fa-users"></i> Todos
+                        </button>
+                        <button type="button" class="btn-filter" data-filter="active" onclick="filterUsersByStatus('active')">
+                            <i class="fas fa-check-circle"></i> Activos
+                        </button>
+                        <button type="button" class="btn-filter" data-filter="inactive" onclick="filterUsersByStatus('inactive')">
+                            <i class="fas fa-ban"></i> Inactivos
+                        </button>
+                    </div>
                     <div class="pagination-info">
                         <span id="user-count-info">Mostrando 0 usuarios</span>
                     </div>
@@ -729,7 +748,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
 
     <!-- Script del Dashboard -->
-    <script src="/static/dashboard.js?v=7.5"></script>
+    <script src="/static/dashboard.js?v=7.6"></script>
     <!-- <script src="/static/dashboard.js"></script> -->
 </body>
 </html>
