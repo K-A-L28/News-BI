@@ -157,6 +157,28 @@ class Dashboard {
         if (userEmailElement && this.currentUser) {
             userEmailElement.textContent = this.currentUser.email;
         }
+        
+        // Actualizar visibilidad de elementos solo para administradores
+        this.updateAdminUI();
+    }
+
+    isAdmin() {
+        // Verificar si el usuario es administrador o desarrollador (ambos son "admin" para la mayoría de funciones)
+        return this.currentUser && (this.currentUser.role === 'ADMIN' || this.currentUser.role === 'DEVELOPER');
+    }
+
+    isStrictAdmin() {
+        // Verificar si el usuario es solo ADMIN (no desarrollador) - para operaciones sensibles como eliminar
+        return this.currentUser && this.currentUser.role === 'ADMIN';
+    }
+
+    updateAdminUI() {
+        const adminElements = document.querySelectorAll('.admin-only');
+        if (this.isAdmin()) {
+            adminElements.forEach(el => el.classList.add('visible'));
+        } else {
+            adminElements.forEach(el => el.classList.remove('visible'));
+        }
     }
 
     init() {
@@ -412,6 +434,15 @@ class Dashboard {
     createEnvioRow(envio) {
         const row = document.createElement('tr');
         const envioId = String(envio.id).replace(/'/g, "\\'");
+        const isAdmin = this.isAdmin();
+        
+        // ADMIN y DEVELOPER pueden ver botón de retry
+        const retryButton = (envio.status === 'failed' && isAdmin) ? `
+            <button class="btn-action" onclick="dashboard.retryExecution('${envioId}')" title="Reintentar">
+                <i class="fas fa-redo"></i>
+            </button>
+        ` : '';
+        
         row.innerHTML = `
             <td>${envio.fecha}</td>
             <td>${envio.boletin}</td>
@@ -421,11 +452,7 @@ class Dashboard {
                 <button class="btn-action" onclick="dashboard.showDetails('${envioId}')" title="Ver detalles">
                     <i class="fas fa-eye"></i>
                 </button>
-                ${envio.status === 'failed' ? `
-                    <button class="btn-action" onclick="dashboard.retryExecution('${envioId}')" title="Reintentar">
-                        <i class="fas fa-redo"></i>
-                    </button>
-                ` : ''}
+                ${retryButton}
             </td>
         `;
         return row;
@@ -490,6 +517,20 @@ class Dashboard {
 
     createProximoRow(proximo) {
         const row = document.createElement('tr');
+        const isAdmin = this.isAdmin();
+        const isStrictAdmin = this.isStrictAdmin();
+        
+        // Solo ADMIN estricto puede toggle y delete
+        const adminOnlyButtons = isStrictAdmin ? `
+            <button class="btn-action" onclick="dashboard.toggleSchedule('${proximo.id}')" title="Habilitar/Deshabilitar">
+                <i class="fas fa-toggle-${proximo.estado === 'enabled' ? 'on' : 'off'}"></i>
+            </button>
+            <button class="btn-action" onclick="dashboard.deleteSchedule('${proximo.id}')" title="Eliminar">
+                <i class="fas fa-trash"></i>
+            </button>
+        ` : '';
+        
+        // Todos los usuarios pueden ver el botón de editar
         row.innerHTML = `
             <td>${proximo.boletin}</td>
             <td>${proximo.hora}</td>
@@ -499,12 +540,7 @@ class Dashboard {
                 <button class="btn-action" onclick="dashboard.editSchedule('${proximo.id}')" title="Editar">
                     <i class="fas fa-edit"></i>
                 </button>
-                <button class="btn-action" onclick="dashboard.toggleSchedule('${proximo.id}')" title="Habilitar/Deshabilitar">
-                    <i class="fas fa-toggle-${proximo.estado === 'enabled' ? 'on' : 'off'}"></i>
-                </button>
-                <button class="btn-action" onclick="dashboard.deleteSchedule('${proximo.id}')" title="Eliminar">
-                    <i class="fas fa-trash"></i>
-                </button>
+                ${adminOnlyButtons}
             </td>
         `;
         return row;
@@ -531,7 +567,10 @@ class Dashboard {
 
     // Action Methods
     showSettings() {
-        this.showModal('Configuración General', `
+        // Verificar si el usuario es desarrollador para mostrar el modo prueba
+        const isDeveloper = this.currentUser && this.currentUser.role === 'DEVELOPER';
+        
+        const testModeSection = isDeveloper ? `
             <div class="form-group test-mode-section">
                 <label class="checkbox-label">
                     <input type="checkbox" id="test-mode-checkbox" onchange="dashboard.toggleTestMode()">
@@ -543,6 +582,10 @@ class Dashboard {
                     Al activar el modo prueba, todos los correos se enviarán únicamente a: k.acevedo@clinicassanrafael.com
                 </small>
             </div>
+        ` : '';
+        
+        this.showModal('Configuración General', `
+            ${testModeSection}onclick="downloadAuditLogs()"
             
             <div class="form-group">
                 <label>Dominios Permitidos:</label>
@@ -610,8 +653,11 @@ class Dashboard {
                 if (settings.limiteCorreos) {
                     document.getElementById('limite-correos').value = settings.limiteCorreos;
                 }
-                if (settings.is_test_mode !== undefined) {
-                    document.getElementById('test-mode-checkbox').checked = settings.is_test_mode;
+                
+                // Solo cargar el checkbox de modo prueba si existe (solo para desarrolladores)
+                const testModeCheckbox = document.getElementById('test-mode-checkbox');
+                if (testModeCheckbox && settings.is_test_mode !== undefined) {
+                    testModeCheckbox.checked = settings.is_test_mode;
                 }
                 
                 // Cargar dominios permitidos
@@ -924,6 +970,9 @@ class Dashboard {
             
             const scheduleData = await response.json();
             
+            // Check user role
+            const isAdmin = this.isAdmin();
+            const userRole = this.currentUser ? this.currentUser.role : 'USER';
             
             // Create newsletter options
             const newsletterOptions = scheduleData.newsletters.map(nl => 
@@ -935,64 +984,124 @@ class Dashboard {
                 '<option value="' + list.list_id + '"' + (list.list_id === scheduleData.email_list_id ? ' selected' : '') + '>' + list.list_name + ' (' + list.email_count + ' correos)</option>'
             ).join('') : '<option value="">No hay listas disponibles</option>';
             
-            // Build modal HTML without template literals
-            const modalContent = '<form id="edit-schedule-form" enctype="multipart/form-data">' +
-                '<div class="form-group">' +
-                    '<label for="newsletter-select">Nombre del Boletin:</label>' +
-                    '<select id="newsletter-select" class="form-control" required>' +
-                        newsletterOptions +
-                    '</select>' +
-                '</div>' +
-                '<div class="form-group">' +
-                    '<label for="email-list-select">Lista de Destinatarios:</label>' +
-                    '<select id="email-list-select" class="form-control">' +
-                        '<option value="">Selecciona una lista...</option>' +
-                        emailListOptions +
-                    '</select>' +
-                    '<small class="form-text">Lista actual: ' + (scheduleData.current_email_list || 'No asignada') + '</small>' +
-                    '<small class="form-text">Selecciona una lista para cambiar los destinatarios (opcional)</small>' +
-                '</div>' +
-                '<div class="form-group">' +
-                    '<label for="time-input">Hora de Ejecucion:</label>' +
-                    '<input type="time" id="time-input" class="form-control" value="' + scheduleData.send_time + '" required>' +
-                '</div>' +
-                '<div class="form-group">' +
-                    '<label for="timezone-select">Zona Horaria:</label>' +
-                    '<select id="timezone-select" class="form-control">' +
-                        '<option value="America/Bogota"' + (scheduleData.timezone === 'America/Bogota' ? ' selected' : '') + '>America/Bogota</option>' +
-                        '<option value="UTC"' + (scheduleData.timezone === 'UTC' ? ' selected' : '') + '>UTC</option>' +
-                    '</select>' +
-                '</div>' +
-                '<div class="form-group">' +
-                    '<label>Nueva Plantilla de Correo (.html):</label>' +
-                    '<div class="file-upload-area" onclick="dashboard.selectEditFile(\'email-template\')">' +
-                        '<i class="fas fa-envelope"></i>' +
-                        '<span id="edit-email-template-file-name">Haz clic para seleccionar nueva plantilla (opcional)</span>' +
+            // Build modal content based on user role
+            let modalContent;
+            
+            if (isAdmin) {
+                // ADMIN y DEVELOPER pueden editar todos los campos
+                modalContent = '<form id="edit-schedule-form" enctype="multipart/form-data">' +
+                    '<div class="form-group">' +
+                        '<label for="newsletter-select">Nombre del Boletin:</label>' +
+                        '<select id="newsletter-select" class="form-control" required>' +
+                            newsletterOptions +
+                        '</select>' +
                     '</div>' +
-                    '<small class="form-text">Plantilla actual: ' + (scheduleData.current_template || 'No asignada') + '</small>' +
-                '</div>' +
-                '<div class="form-group">' +
-                    '<label class="checkbox-label">' +
-                        '<input type="checkbox" id="enabled-checkbox"' + (scheduleData.is_enabled ? ' checked' : '') + '>' +
-                        'Tarea habilitada' +
-                    '</label>' +
-                '</div>' +
-                '<div class="form-actions">' +
-                    '<button type="submit" class="btn-primary">' +
-                        '<i class="fas fa-save"></i> Guardar Cambios' +
-                    '</button>' +
-                    '<button type="button" class="btn-secondary" onclick="dashboard.cancelEdit()">' +
-                        '<i class="fas fa-times"></i> Cancelar' +
-                    '</button>' +
-                '</div>' +
-            '</form>';
+                    '<div class="form-group">' +
+                        '<label for="email-list-select">Lista de Destinatarios:</label>' +
+                        '<select id="email-list-select" class="form-control">' +
+                            '<option value="">Selecciona una lista...</option>' +
+                            emailListOptions +
+                        '</select>' +
+                        '<small class="form-text">Lista actual: ' + (scheduleData.current_email_list || 'No asignada') + '</small>' +
+                        '<small class="form-text">Selecciona una lista para cambiar los destinatarios (opcional)</small>' +
+                    '</div>' +
+                    '<div class="form-group">' +
+                        '<label for="time-input">Hora de Ejecucion:</label>' +
+                        '<input type="time" id="time-input" class="form-control" value="' + scheduleData.send_time + '" required>' +
+                    '</div>' +
+                    '<div class="form-group">' +
+                        '<label for="timezone-select">Zona Horaria:</label>' +
+                        '<select id="timezone-select" class="form-control">' +
+                            '<option value="America/Bogota"' + (scheduleData.timezone === 'America/Bogota' ? ' selected' : '') + '>America/Bogota</option>' +
+                            '<option value="UTC"' + (scheduleData.timezone === 'UTC' ? ' selected' : '') + '>UTC</option>' +
+                        '</select>' +
+                    '</div>' +
+                    '<div class="form-group">' +
+                        '<label>Nueva Plantilla de Correo (.html):</label>' +
+                        '<div class="file-upload-area" onclick="dashboard.selectEditFile(\'email-template\')">' +
+                            '<i class="fas fa-envelope"></i>' +
+                            '<span id="edit-email-template-file-name">Haz clic para seleccionar nueva plantilla (opcional)</span>' +
+                        '</div>' +
+                        '<small class="form-text">Plantilla actual: ' + (scheduleData.current_template || 'No asignada') + '</small>' +
+                    '</div>' +
+                    '<div class="form-group">' +
+                        '<label class="checkbox-label">' +
+                            '<input type="checkbox" id="enabled-checkbox"' + (scheduleData.is_enabled ? ' checked' : '') + '>' +
+                            'Tarea habilitada' +
+                        '</label>' +
+                    '</div>' +
+                    '<div class="form-actions">' +
+                        '<button type="submit" class="btn-primary">' +
+                            '<i class="fas fa-save"></i> Guardar Cambios' +
+                        '</button>' +
+                        '<button type="button" class="btn-secondary" onclick="dashboard.cancelEdit()">' +
+                            '<i class="fas fa-times"></i> Cancelar' +
+                        '</button>' +
+                    '</div>' +
+                '</form>';
+            } else {
+                // USER solo puede editar la lista de correos - otros campos en modo solo lectura
+                modalContent = '<form id="edit-schedule-form" enctype="multipart/form-data">' +
+                    '<div class="form-group">' +
+                        '<label for="newsletter-select">Nombre del Boletin:</label>' +
+                        '<select id="newsletter-select" class="form-control" disabled>' +
+                            newsletterOptions +
+                        '</select>' +
+                        '<small class="form-text" style="color: #6c757d;">Solo los administradores pueden cambiar el boletín</small>' +
+                    '</div>' +
+                    '<div class="form-group">' +
+                        '<label for="email-list-select">Lista de Destinatarios:</label>' +
+                        '<select id="email-list-select" class="form-control">' +
+                            '<option value="">Selecciona una lista...</option>' +
+                            emailListOptions +
+                        '</select>' +
+                        '<small class="form-text">Lista actual: ' + (scheduleData.current_email_list || 'No asignada') + '</small>' +
+                        '<small class="form-text" style="color: #28a745;">✓ Puedes cambiar la lista de destinatarios</small>' +
+                    '</div>' +
+                    '<div class="form-group">' +
+                        '<label for="time-input">Hora de Ejecucion:</label>' +
+                        '<input type="time" id="time-input" class="form-control" value="' + scheduleData.send_time + '" disabled>' +
+                        '<small class="form-text" style="color: #6c757d;">Solo los administradores pueden cambiar la hora</small>' +
+                    '</div>' +
+                    '<div class="form-group">' +
+                        '<label for="timezone-select">Zona Horaria:</label>' +
+                        '<select id="timezone-select" class="form-control" disabled>' +
+                            '<option value="America/Bogota"' + (scheduleData.timezone === 'America/Bogota' ? ' selected' : '') + '>America/Bogota</option>' +
+                            '<option value="UTC"' + (scheduleData.timezone === 'UTC' ? ' selected' : '') + '>UTC</option>' +
+                        '</select>' +
+                        '<small class="form-text" style="color: #6c757d;">Solo los administradores pueden cambiar la zona horaria</small>' +
+                    '</div>' +
+                    '<div class="form-group" style="opacity: 0.6;">' +
+                        '<label>Nueva Plantilla de Correo (.html):</label>' +
+                        '<div class="file-upload-area" style="cursor: not-allowed; background: #e9ecef;">' +
+                            '<i class="fas fa-envelope"></i>' +
+                            '<span>Plantilla actual: ' + (scheduleData.current_template || 'No asignada') + '</span>' +
+                        '</div>' +
+                        '<small class="form-text" style="color: #6c757d;">Solo los administradores pueden cambiar la plantilla</small>' +
+                    '</div>' +
+                    '<div class="form-group">' +
+                        '<label class="checkbox-label" style="opacity: 0.6;">' +
+                            '<input type="checkbox" id="enabled-checkbox"' + (scheduleData.is_enabled ? ' checked' : '') + ' disabled>' +
+                            'Tarea habilitada (solo administradores pueden cambiar)' +
+                        '</label>' +
+                    '</div>' +
+                    '<div class="form-actions">' +
+                        '<button type="submit" class="btn-primary">' +
+                            '<i class="fas fa-save"></i> Guardar Cambios' +
+                        '</button>' +
+                        '<button type="button" class="btn-secondary" onclick="dashboard.cancelEdit()">' +
+                            '<i class="fas fa-times"></i> Cancelar' +
+                        '</button>' +
+                    '</div>' +
+                '</form>';
+            }
             
             this.showModal('Editar Tarea Programada', modalContent);
             
             // Add form submit handler
             document.getElementById('edit-schedule-form').addEventListener('submit', (e) => {
                 e.preventDefault();
-                this.saveSchedule(id);
+                this.saveSchedule(id, userRole);
             });
             
         } catch (error) {
@@ -1001,7 +1110,8 @@ class Dashboard {
         }
     }
 
-    async saveSchedule(id) {
+
+    async saveSchedule(id, userRole) {
         try {
             // Get form values
             const newsletterId = document.getElementById('newsletter-select').value;
@@ -1010,10 +1120,21 @@ class Dashboard {
             const timezone = document.getElementById('timezone-select').value;
             const isEnabled = document.getElementById('enabled-checkbox').checked;
             
-            // Validate inputs
-            if (!newsletterId || !sendTime) {
-                this.showToast('Por favor completa todos los campos requeridos', 'error');
-                return;
+            // Validate inputs based on user role
+            const isAdmin = userRole === 'ADMIN' || userRole === 'DEVELOPER';
+            
+            if (!isAdmin) {
+                // USER role: only email list is required, other fields are disabled
+                if (!emailListId) {
+                    this.showToast('Por favor selecciona una lista de correos', 'error');
+                    return;
+                }
+            } else {
+                // ADMIN/DEVELOPER: all fields are required
+                if (!newsletterId || !sendTime) {
+                    this.showToast('Por favor completa todos los campos requeridos', 'error');
+                    return;
+                }
             }
             
             // Create FormData for file upload

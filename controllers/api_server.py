@@ -339,6 +339,78 @@ def authenticate_user():
         return wrapper
     return decorator
 
+def require_strict_admin():
+    """Decorador para verificar que el usuario sea solo ADMIN (no DEVELOPER)"""
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(request: Request, *args, **kwargs):
+            # Primero verificar autenticación
+            session_token = request.cookies.get("session_token")
+            
+            if not session_token or not is_session_valid(session_token):
+                raise HTTPException(
+                    status_code=401, 
+                    detail="Autenticación requerida"
+                )
+            
+            session_data = get_user_from_session(session_token)
+            if not session_data or not session_data.get("user"):
+                raise HTTPException(
+                    status_code=401, 
+                    detail="Sesión inválida o expirada"
+                )
+            
+            # Agregar usuario al request
+            request.state.user = session_data.get("user")
+            
+            # Verificar que sea estrictamente ADMIN (no DEVELOPER)
+            user_role = request.state.user.get("role", "")
+            if user_role != "ADMIN":
+                raise HTTPException(
+                    status_code=403,
+                    detail="Acceso denegado. Se requieren permisos de administrador principal."
+                )
+            
+            return await func(request, *args, **kwargs)
+        return wrapper
+    return decorator
+
+def require_admin():
+    """Decorador para verificar que el usuario sea ADMIN o DEVELOPER"""
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(request: Request, *args, **kwargs):
+            # Primero verificar autenticación
+            session_token = request.cookies.get("session_token")
+            
+            if not session_token or not is_session_valid(session_token):
+                raise HTTPException(
+                    status_code=401, 
+                    detail="Autenticación requerida"
+                )
+            
+            session_data = get_user_from_session(session_token)
+            if not session_data or not session_data.get("user"):
+                raise HTTPException(
+                    status_code=401, 
+                    detail="Sesión inválida o expirada"
+                )
+            
+            # Agregar usuario al request
+            request.state.user = session_data.get("user")
+            
+            # Verificar que sea ADMIN o DEVELOPER
+            user_role = request.state.user.get("role", "")
+            if user_role not in ["ADMIN", "DEVELOPER"]:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Acceso denegado. Se requieren permisos de administrador."
+                )
+            
+            return await func(request, *args, **kwargs)
+        return wrapper
+    return decorator
+
 @app.get("/")
 async def serve_root(request: Request):
     """Servir página principal según estado de autenticación"""
@@ -532,7 +604,7 @@ async def get_proximos(request: Request):
         db.close()
 
 @app.post("/api/toggle-schedule/{schedule_id}")
-@authenticate_user()
+@require_strict_admin()
 async def toggle_schedule(request: Request, schedule_id: str):
     """API para alternar el estado de un schedule"""
     db = SessionLocal()
@@ -584,7 +656,7 @@ async def toggle_schedule(request: Request, schedule_id: str):
         db.close()
 
 @app.post("/api/delete-schedule/{schedule_id}")
-@authenticate_user()
+@require_strict_admin()
 async def delete_schedule(request: Request, schedule_id: str):
     """API para eliminar un schedule y su newsletter asociado"""
     db = SessionLocal()
@@ -713,7 +785,7 @@ async def execute_report(http_request: Request, request: ExecuteRequest):
         db.close()
 
 @app.post("/api/upload-bulletin")
-@authenticate_user()
+@require_admin()
 async def upload_bulletin(request: Request):
     """API para cargar un nuevo boletín con sus archivos"""
     try:
@@ -838,7 +910,7 @@ async def get_schedule(schedule_id: str):
         db.close()
 
 @app.put("/api/schedule/{schedule_id}")
-@authenticate_user()
+@require_admin()
 async def update_schedule(request: Request, schedule_id: str):
     """API para actualizar una tarea programada"""
     db = SessionLocal()
@@ -1098,6 +1170,7 @@ async def get_test_mode():
         db.close()
 
 @app.post("/api/config/allowed-domains")
+@require_admin()
 async def set_allowed_domains(request: Request):
     """Configurar dominios permitidos globalmente"""
     db = SessionLocal()
@@ -1199,15 +1272,20 @@ async def get_allowed_domains():
 
 @app.post("/api/test-mode")
 async def set_test_mode(request: Request):
-    """API para activar o desactivar el modo prueba"""
+    """API para activar o desactivar el modo prueba - Solo Desarrolladores"""
     db = SessionLocal()
     try:
+        # Verificar autenticación y rol de desarrollador
+        current_user = await get_current_user_from_request(request, db)
+        if not current_user:
+            raise HTTPException(status_code=401, detail="No autenticado")
+        
+        if current_user.role != UserRole.DEVELOPER:
+            raise HTTPException(status_code=403, detail="Solo los desarrolladores pueden cambiar el modo prueba")
+        
         # Obtener datos del request
         data = await request.json()
         is_test_mode = data.get('is_test_mode', False)
-        
-        # Obtener usuario admin
-        admin_user = system_engine._get_or_create_admin_user(db)
         
         # Buscar configuración existente
         existing_config = db.query(SystemConfig).filter(SystemConfig.config_key == 'is_test_mode').first()
@@ -1218,7 +1296,7 @@ async def set_test_mode(request: Request):
             # Actualizar existente
             existing_config.config_value = str(is_test_mode).lower()
             existing_config.updated_at = datetime.utcnow()
-            existing_config.updated_by = admin_user.user_id
+            existing_config.updated_by = current_user.user_id
         else:
             # Crear nueva configuración
             new_config = SystemConfig(
@@ -1236,7 +1314,7 @@ async def set_test_mode(request: Request):
             entity_type="SYSTEM_CONFIG",
             entity_id="is_test_mode",
             action="UPDATE",
-            performed_by=admin_user.user_id,
+            performed_by=current_user.user_id,
             session=db,
             old_value={"is_test_mode": old_value},
             new_value={"is_test_mode": str(is_test_mode).lower()}
@@ -1298,6 +1376,7 @@ async def get_settings():
         db.close()
 
 @app.post("/api/settings")
+@require_admin()
 async def save_settings(request: Request):
     """API para guardar configuración del sistema"""
     db = SessionLocal()
@@ -1388,7 +1467,7 @@ async def save_settings(request: Request):
         db.close()
 
 @app.post("/api/retry-execution/{log_id}")
-@authenticate_user()
+@require_admin()
 async def retry_execution(request: Request, log_id: str):
     """API para reintentar una ejecución fallida"""
     db = SessionLocal()
@@ -1563,7 +1642,7 @@ async def get_execution_status(log_id: str):
 
 # Endpoints para gestión de listas de correos
 @app.post("/api/email-lists", response_model=dict)
-@authenticate_user()
+@require_admin()
 async def create_email_list(request: Request, email_request: EmailListRequest):
     """Crear una nueva lista de correos desde CSV"""
     db = SessionLocal()
@@ -1715,7 +1794,7 @@ async def get_email_lists():
         db.close()
 
 @app.delete("/api/email-lists/{list_id}")
-@authenticate_user()
+@require_admin()
 async def delete_email_list(request: Request, list_id: str):
     """Eliminar una lista de correos"""
     db = SessionLocal()
@@ -2017,7 +2096,7 @@ async def local_logout(request: Request):
         return response
 
 @app.get("/api/audit/download")
-@authenticate_user()
+@require_admin()
 async def download_audit_logs(request: Request):
     """Descargar todos los registros de auditoría en formato CSV"""
     db = SessionLocal()
@@ -2322,8 +2401,8 @@ async def test_audit(request: Request):
         db.close()
 
 @app.post("/api/credentials")
-@authenticate_user()
-async def update_credentials(request: CredentialsUpdateRequest):
+@require_admin()
+async def update_credentials(request: Request, request_data: CredentialsUpdateRequest):
     """API para actualizar credenciales del archivo .env (encriptar y guardar)"""
     db = SessionLocal()
     try:
@@ -2689,7 +2768,7 @@ async def create_area(request: Request, area_data: AreaRequest):
         db.close()
 
 @app.post("/api/users/register")
-@authenticate_user()
+@require_admin()
 async def register_user(request: Request, user_data: UserRegistrationRequest):
     """Registrar un nuevo usuario con organigrama"""
     # Debug: Verificar si el usuario está autenticado

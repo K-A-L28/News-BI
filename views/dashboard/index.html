@@ -44,24 +44,24 @@
         <main class="main-content">
             <div class="main-header">
                 <div class="main-header--options">
-                    <button class="action-btn tertiary" onclick="showSettings()">
+                    <button class="action-btn tertiary admin-only" onclick="showSettings()" id="btn-configuracion">
                     <i class="fas fa-cog"></i>Configuración
                 </button>
-                <button class="action-btn secondary" onclick="downloadAuditLogs()" title="Descargar registros de auditoría">
+                <button class="action-btn secondary admin-only" onclick="downloadAuditLogs()" title="Descargar registros de auditoría" id="btn-auditoria">
                     <i class="fas fa-download"></i> Auditoría
                 </button>
                 
-                <button class="action-btn secondary outline" onclick="showEmailListManager()">
+                <button class="action-btn secondary outline admin-only" onclick="showEmailListManager()" id="btn-listas-correo">
                     <i class="fas fa-envelope"></i>Listas de Correos
                 </button>
                 
                 </div>
                 <div class="main-header--options">
-                    <button class="action-btn secondary outline" onclick="handleUserRegistrationClick()">
+                    <button class="action-btn secondary outline admin-only" onclick="handleUserRegistrationClick()" id="btn-registrar-usuario">
                         <i class="fas fa-user-plus"></i>Registrar usuario
                     </button>
-                    <button class="action-btn secondary outline" onclick="showUserList()">
-                        <i class="fas fa-user-plus"></i>Listar usuario
+                    <button class="action-btn secondary outline admin-only" onclick="showUserList()" id="btn-listar-usuario">
+                        <i class="fas fa-user"></i>Listar usuario
                     </button>
                 </div>
 
@@ -178,7 +178,7 @@
                         <div class="table-header">
                             <h3><i class="fas fa-calendar-alt"></i> Próximos Envíos</h3>
                             <div class="table-actions">
-                                <button class="btn-add" id="btn-add-bulletin">
+                                <button class="btn-add admin-only" id="btn-add-bulletin">
                                     <i class="fas fa-plus"></i> Nuevo Boletín
                                 </button>
                             </div>

@@ -58,6 +58,15 @@ body {
     overflow-x: hidden;
 }
 
+/* Admin-only elements - hidden by default, shown for admin users */
+.admin-only {
+    display: none !important;
+}
+
+.admin-only.visible {
+    display: inline-flex !important;
+}
+
 /* Header */
 .header {
     background: var(--card-bg);
