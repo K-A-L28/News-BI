@@ -1,178 +1,247 @@
-# App Web de Envío Automático de Boletines
+# Manual Operativo - News BI
 
-**Proyecto:** Aplicación Web Administrativa de Boletines  
+**Código:** 001-OD-001  
+**Versión:** 002  
 **Responsable:** Kevin Acevedo López  
-**Cargo:** (Practicante Tics / Desarrollador de la App web)  
-**Área / Departamento:** Tics  
-**Versión:** 1.0  
-**Fecha:** 14/02/2026  
+**Cargo:** Desarrollador  
+**Organización:** Sociamedicos S.A.S / Clínica San Rafael  
+**Fecha:** 1/04/2026  
 
 ---
 
-# Introducción
+## 1. Introducción
 
-El presente documento describe el funcionamiento operativo de la aplicación web para la gestión y programación automática de boletines electrónicos.
+Este documento describe el funcionamiento operativo de la aplicación web **News BI**, utilizada para la gestión y programación automática de boletines electrónicos.
 
-Su finalidad es servir como guía práctica para los usuarios encargados de crear, configurar y supervisar los envíos diarios, detallando los pasos necesarios para utilizar correctamente el sistema.
-
----
-
-# Objetivo del Manual
-
-Proporcionar instrucciones claras y concisas para:
-
-- Crear y gestionar boletines.
-- Administrar listas de destinatarios.
-- Programar envíos automáticos.
-- Consultar el estado de los envíos y revisar logs.
-- Configurar opciones generales del sistema (para usuarios con rol administrador).
-
-Este manual está orientado a usuarios operativos y administradores del sistema.
+Su propósito es servir como guía para usuarios encargados de crear, configurar y supervisar envíos diarios.
 
 ---
 
-# Tabla de Contenido
+## 2. Objetivo
 
-1. Manual de Operación – Usuario General  
-2. Funciones Exclusivas para Administradores  
+Proporcionar instrucciones para:
 
----
-
-# 1. Manual de Operación – Usuario General
-
-## Inicio de sesión (pendiente)
-
----
-
-## Crear boletín
-
-El usuario debe buscar la tabla **“Próximos Envíos”**.
-
-Allí encontrará un botón de color verde.
-
-Al presionar el botón, se abrirá un formulario que solicitará los siguientes archivos y datos:
-
-- Nombre del boletín
-- Lista de correos
-- Plantilla HTML del correo (mensaje que quiere mostrar en el correo)
-- Archivo Python (.py)
-- Archivos JSON (.json)
-- Plantilla HTML para el boletín
-- Imágenes para mostrar en la plantilla del boletín
-
-Para crear el boletín debe presionar el botón correspondiente.
-
-Si desea cancelar la ejecución puede presionar el botón de cancelar.
-
-También puede cerrar el formulario desde el botón ubicado en la parte superior derecha junto al título del formulario.
+- Crear y gestionar boletines  
+- Administrar listas de destinatarios  
+- Programar envíos automáticos  
+- Consultar estados y logs  
+- Configurar el sistema (administradores)  
 
 ---
 
-## Crear lista de destinatarios
+## 3. Alcance
 
-El usuario debe ubicar el botón **Lista de Correos** en la parte superior izquierda.
+Este manual está dirigido a:
 
-Al presionar el botón se abrirá un formulario para la creación de la lista.
-
-Se solicitará:
-
-- Nombre de la Lista
-- Descripción
-- Archivo CSV con los correos electrónicos
-
-Para crear la lista debe presionar el botón correspondiente.
-
-Para visualizar las listas creadas, debe deslizar hacia abajo hasta la sección **Listas Existentes**.
-
-Podrá ver:
-
-- Cantidad de correos que contiene la lista
-- Fecha de creación
-- Límite de correos permitidos
+- Usuarios operativos  
+- Administradores  
+- Desarrolladores  
 
 ---
 
-## Programar una tarea
+## 4. Inicio de sesión
 
-El usuario debe buscar la tabla **“Próximos Envíos”**.
+1. Acceder a la aplicación.
+2. Presionar el botón de inicio de sesión.
+3. Autenticarse mediante Microsoft.
+4. Ingresar credenciales.
 
-Allí encontrará el boletín creado anteriormente.  
-En la columna **ACCIONES** debe presionar el ícono de edición.
-
-Se abrirá el formulario de edición donde se mostrará:
-
-- Nombre del boletín
-- Lista de destinatarios seleccionada
-- Hora de ejecución (debe presionar el campo y escribir la hora)
-- Zona horaria (por defecto: America/Bogota)
-- Nueva plantilla de correo (.html) (opcional para actualizar)
-
-Para que el boletín se ejecute en la hora indicada se debe activar:
-
-- **Desactivado (por defecto):** No se ejecutará.
-- **Activado:** La tarea se ejecutará en la hora indicada.
-
-Para actualizar el boletín debe presionar el botón correspondiente.
-
-Para cancelar la edición puede:
-
-- Presionar el botón cancelar.
-- Cerrar el formulario desde la parte superior derecha.
+> Nota: El usuario debe estar previamente registrado en el sistema.
 
 ---
 
-## Ver estado, logs y reintentos
+## 5. Administrador
 
-El usuario debe ubicar la tabla **Últimos Envíos**.
+### 5.1 Configuración general
 
-Cuando la tarea se ejecute, se mostrará el estado **Ejecutando**.
+Permite configurar:
 
-Si la tarea finaliza con éxito mostrará el estado correspondiente.
-
-Podrá ver los detalles de la ejecución presionando el botón correspondiente donde se visualizará:
-
-- Boletín
-- Fecha
-- Estado
-- Duración
-- Logs de ejecución
-
-Si la ejecución falla, la tarea mostrará estado **Fallido**.
-
-El registro mostrará dos opciones:
-
-- Ver detalles de la ejecución
-- Reintentar ejecución
-
-Si presiona **Ver detalles**, podrá visualizar el error.  
-Si presiona **Reintentar**, la tarea se ejecutará automáticamente nuevamente.
+- Dominios permitidos  
+- Remitente de correos  
+- Límite de envíos (por defecto: 100)  
+- Pie de página de boletines  
 
 ---
 
-## Widget resumen del día
+### 5.2 Gestionar credenciales
 
-En el dashboard el usuario puede visualizar:
+Permite visualizar y editar:
 
-- Cantidad de boletines enviados en el día
-- Cantidad de boletines fallidos en el día
-- Cantidad de boletines programados (Próximos)
-- Tareas activas
+- Tenant ID  
+- Client ID  
+- Client Secret  
+- API Key de Gemini  
 
----
-
-# 2. Funciones Exclusivas para Administradores
-
-## 1. Configuración general del sistema
-
-El usuario administrador visualizará el botón **Configuraciones**.
-
-Al presionar el botón se abrirá un formulario donde se puede configurar:
-
-- Dominios permitidos
-- Remitente de los correos (qué correo los envía)
-- Límite de correos por lista (por defecto 100 correos)
-- Pie de página
+Estas credenciales son necesarias para la integración con servicios externos.
 
 ---
 
-## 2. Asignar roles (Pendiente)
+### 5.3 Auditoría
+
+- Genera un archivo `.csv` con los registros del sistema.
+
+---
+
+### 5.4 Listas de destinatarios
+
+#### Crear lista
+
+Campos requeridos:
+
+- Nombre  
+- Descripción  
+- Archivo CSV  
+
+#### Visualización
+
+Permite consultar:
+
+- Cantidad de correos  
+- Fecha de creación  
+- Límite de correos  
+
+---
+
+### 5.5 Gestión de usuarios
+
+#### Registrar usuario
+
+Campos:
+
+- Nombres  
+- Apellidos  
+- Correo electrónico  
+- Teléfono  
+- Dirección  
+- Departamento  
+- Municipio  
+- Rol  
+- Empresa  
+- Sede  
+- Área  
+
+#### Listar usuarios
+
+Permite:
+
+- Visualizar usuarios registrados  
+- Editar información  
+- Filtrar por:
+  - ID  
+  - Nombre  
+  - Correo  
+  - Estado (Activo/Inactivo)  
+
+---
+
+### 5.6 Dashboard
+
+Visualiza:
+
+- Boletines enviados  
+- Boletines fallidos  
+- Próximos envíos  
+- Tareas activas  
+
+---
+
+### 5.7 Crear boletín
+
+Ubicación: tabla **Próximos Envíos**
+
+Campos requeridos:
+
+- Nombre del boletín  
+- Lista de correos  
+- Plantilla HTML  
+- Archivo Python (.py)  
+- Archivos JSON (.json)  
+- Imágenes  
+
+---
+
+### 5.8 Editar boletín
+
+Permite modificar:
+
+- Nombre  
+- Lista de destinatarios  
+- Hora de ejecución  
+- Zona horaria (America/Bogota)  
+- Plantilla HTML (opcional)  
+
+#### Estado de ejecución
+
+- Desactivado: no se ejecuta  
+- Activado: se ejecuta automáticamente  
+
+---
+
+### 5.9 Deshabilitar boletín
+
+- Cambia el estado del boletín sin eliminarlo.
+
+---
+
+### 5.10 Eliminar boletín
+
+- Elimina el boletín de forma permanente.
+
+---
+
+### 5.11 Estado, logs y reintentos
+
+Estados posibles:
+
+- Ejecutando  
+- Exitoso  
+- Fallido  
+
+Opciones disponibles:
+
+- Ver detalles  
+- Reintentar ejecución  
+
+---
+
+## 6. Desarrollador
+
+El usuario desarrollador tiene acceso a todas las funcionalidades del administrador.
+
+### 6.1 Modo de prueba
+
+Permite:
+
+- Enviar boletines a un correo de prueba  
+- Definir destinatario de testing  
+
+---
+
+## 7. Usuario
+
+### 7.1 Panel de administración
+
+Permite visualizar el estado general del sistema.
+
+---
+
+### 7.2 Edición de destinatarios
+
+Ubicación: tabla **Próximos Envíos**
+
+Permite modificar:
+
+- Lista de destinatarios  
+- Hora de ejecución  
+- Zona horaria  
+
+---
+
+## 8. Recomendaciones
+
+- Validar archivos antes de cargarlos (.csv, .html, .json, .py)  
+- Verificar listas de destinatarios  
+- Utilizar modo de prueba antes de producción  
+- Revisar logs para monitoreo de errores  
+
+---

@@ -675,7 +675,7 @@ Define la estructura del correo electrónico.
 
 Los archivos deben almacenarse en la base de datos usando el dashboard:
 
-1. **Ve a "Cargar Boletín"** en el dashboard
+1. **Ve a "Nuevo Boletín"** en el dashboard
 2. **Ingresa los 3 componentes**:
    - **Nombre del Boletín**: `mi_boletin_personalizado`
    - **Script Python**: Contenido del archivo `script.py`
@@ -695,9 +695,7 @@ El sistema inyecta automáticamente estas variables en tu script:
 - `CLIENT_ID`: ID del cliente de la aplicación
 - `CLIENT_SECRET`: Secreto del cliente
 - `GEMINI_API_KEY`: Claves API de Gemini (separadas por comas)
-- `GEMINI_MODEL`: Modelo de Gemini a usar
-- `REPORT_ID`: ID del reporte Power BI principal
-- `REPORT_ID_2`: ID del reporte Power BI secundario
+
 
 ### Variables Inyectadas en Tiempo de Ejecución
 - `EMAIL_TEMPLATE_CONTENT`: Plantilla de correo personalizada (si existe)
@@ -722,9 +720,6 @@ El sistema inyecta automáticamente estas variables en tu script:
 - `CLIENT_ID`: ID del cliente de la aplicación
 - `CLIENT_SECRET`: Secreto del cliente
 - `GEMINI_API_KEY`: Claves API de Gemini (separadas por comas)
-- `GEMINI_MODEL`: Modelo de Gemini a usar
-- `REPORT_ID`: ID del reporte Power BI principal
-- `REPORT_ID_2`: ID del reporte Power BI secundario
 
 ### Variables Inyectadas en Tiempo de Ejecución
 - `EMAIL_TEMPLATE_CONTENT`: Plantilla de correo personalizada (si existe)
