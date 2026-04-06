@@ -1395,6 +1395,11 @@ class Dashboard {
     showUploadBulletinModal() {
         const formHTML = `
             <form id="upload-bulletin-form">
+                <input type="file" id="script-input" accept=".py" style="display:none;">
+                <input type="file" id="query-input" accept=".json" multiple style="display:none;">
+                <input type="file" id="template-input" accept=".html,.htm" style="display:none;">
+                <input type="file" id="email-template-input" accept=".html,.htm" style="display:none;">
+                <input type="file" id="images-input" accept="image/*" multiple style="display:none;">
                 <div class="form-group">
                     <label for="bulletin-name">Nombre del Boletín:</label>
                     <input type="text" id="bulletin-name" class="form-control" placeholder="Ej: Reporte Diario de Ventas" required>
